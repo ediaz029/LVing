@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rust → CPG Converter</title>
+<style>
+ body{font-family:sans-serif;max-width:800px;margin:auto;padding:2rem}
+ textarea{width:100%;height:300px}
+ button{margin-top:1rem;padding:.5rem 1rem}
+ pre{background:#eee;padding:1rem;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h2>Paste Rust code:</h2>
+<form id="codeForm">
+  <textarea name="code" spellcheck="false"></textarea><br>
+  <button type="submit">Convert &amp; Export to Neo4j</button>
+</form>
+<h3>Result</h3>
+<pre id="result">—</pre>
+<script src="app.js"></script>
+</body>
+</html>
