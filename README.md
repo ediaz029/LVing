@@ -14,7 +14,7 @@ A graph-based visualization tool that detects hidden concurrency vulnerabilities
 **Key Files:**
 
 - **docker-compose.yml**: Defines the `backend` and `frontend` services.
-- **.env**: Contains environment variables like `NEO4J_IP`, `NEO4J_USER`, `NEO4J_PASS`.
+- **.env**: Contains environment variables like `NEO4J_PASSWORD`.
 - **src/backend/Dockerfile**: Builds the Python backend image.
 - **src/frontend/Dockerfile**: Builds the Vue (Vite) frontend image.
 
@@ -25,9 +25,7 @@ A graph-based visualization tool that detects hidden concurrency vulnerabilities
 Create a `.env` file in the project root with your Neo4j credentials:
 
 ```env
-NEO4J_IP=your.neo4j.external.ip
-NEO4J_USER=neo4j
-NEO4J_PASS=your_password
+NEO4J_PASSWORD=your_password
 ```
 ---
 
