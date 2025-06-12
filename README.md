@@ -7,19 +7,13 @@ A comprehensive static analysis tool for identifying memory safety and concurren
 ---
 
 ## Prerequisites
-
-- **Docker**: Install [Docker](https://docs.docker.com/get-docker/).
-- **Docker Compose**: Comes bundled with Docker Desktop on Windows/Mac. On Linux, install separately if needed.
+- **Docker & Docker Compose**: Install [Docker](https://docs.docker.com/get-docker/) (includes Docker Compose)
 
 ---
 
-
 **Key Files:**
-
-- **docker-compose.yml**: Defines the `backend` and `frontend` services.
-- **.env**: Contains environment variables like `NEO4J_PASSWORD`.
-- **src/backend/Dockerfile**: Builds the Python backend image.
-- **src/frontend/Dockerfile**: Builds the Vue (Vite) frontend image.
+- **docker-compose.yml**: Orchestrates backend, frontend, and Neo4j services
+- **.env**: Environment variables (Neo4j credentials)
 
 ---
 
@@ -33,21 +27,21 @@ NEO4J_IP=your_neo4j_ip_here
 ```
 ---
 
-# Running the Containers
+# Getting Started
 
-## 1. Clone this Repository
-If you haven’t already, clone this repository.  
-
-## 2. Navigate to the Project Root
-Ensure you are in the directory where `docker-compose.yml` is located.  
-
-## 3. Build and Start the Containers
-Run the following command:  
-
+## 1. Setup Environment
 ```bash
-docker-compose up --build
+git clone <repository-url>
+cd RVing
+cp .env.template .env
+# Edit .env with your Neo4j credentials
 ```
-## This Will
-- Build the **FASTAPI backend** image.  
-- Build the **frontend** image.  
-- Start both containers on a Docker network (`app-network`).  
+## 2. Deploy Services
+```bash
+docker compose build
+docker compose up
+```
+## 3. Access Services
+- **Frontend:** http://your_ip:8080
+- **Neo4j Browser:** http://your_ip:7474
+- **API:** http://your_ip:8000
