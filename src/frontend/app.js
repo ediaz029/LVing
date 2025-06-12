@@ -4,14 +4,13 @@ document.getElementById("codeForm").onsubmit = async (e) => {
   const submitButton = e.target.querySelector('button[type="submit"]');
   const resultElement = document.getElementById("result");
   
-  // Update UI
   submitButton.disabled = true;
   submitButton.textContent = "Processing...";
   resultElement.textContent = "Analyzing code...";
   
   try {
     const formData = new FormData(e.target);
-    const res = await fetch("http://localhost:8000/convert/", {
+    const res = await fetch("http://34.28.0.180:8000/convert/", {
       method: "POST", 
       body: formData
     });
@@ -48,16 +47,14 @@ document.getElementById("codeForm").onsubmit = async (e) => {
     console.error("Analysis failed:", error);
     resultElement.textContent = `[ERROR] ${error.message}\n\nPlease check:\n- Backend service is running\n- Rust code syntax is valid\n- Network connectivity`;
   } finally {
-    // Reset UI
     submitButton.disabled = false;
     submitButton.textContent = "Convert & Export to Neo4j";
   }
 };
 
-// Simple health check on page load
 window.addEventListener('load', async () => {
   try {
-    const response = await fetch("http://localhost:8000/");
+    const response = await fetch("http://34.28.0.180:8000/");
     if (response.ok) {
       console.log("[SUCCESS] Backend connected");
     }
