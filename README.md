@@ -1,5 +1,8 @@
 # RVing - Rust Vulnerability Detection Framework
-A graph-based visualization tool that detects hidden concurrency vulnerabilities in Rust programs by analyzing code at the LLVM Intermediate Representation (IR) level.
+A comprehensive static analysis tool for identifying memory safety and concurrency vulnerabilities in Rust programs through graph-based visualization and analysis.
+
+## Overview
+**RVing** is a static analysis framework for detecting memory safety and concurrency vulnerabilities in Rust programs through graph-based program representation. This tool constructs Code Property Graphs (CPGs) from LLVM Intermediate Representation, enabling systematic analysis of low-level memory operations and vulnerability patterns. Built on the Fraunhofer Institute's CPG library, RVing provides a scalable platform for automated vulnerability detection and interactive program exploration via Neo4j graph visualization.
 
 ---
 
@@ -25,7 +28,8 @@ A graph-based visualization tool that detects hidden concurrency vulnerabilities
 Create a `.env` file in the project root with your Neo4j credentials:
 
 ```env
-NEO4J_PASSWORD=your_password
+NEO4J_PASSWORD=your_password_here
+NEO4J_IP=your_neo4j_ip_here
 ```
 ---
 
