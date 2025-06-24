@@ -2,7 +2,7 @@
 A comprehensive static analysis tool for identifying memory safety and concurrency vulnerabilities in Rust programs through graph-based visualization and analysis.
 
 ## Overview
-**RVing** is a static analysis framework for detecting memory safety and concurrency vulnerabilities in Rust programs through graph-based program representation. This tool constructs Code Property Graphs (CPGs) from LLVM Intermediate Representation, enabling systematic analysis of low-level memory operations and vulnerability patterns. Built on the Fraunhofer Institute's CPG library, RVing provides a scalable platform for automated vulnerability detection and interactive program exploration via Neo4j graph visualization.
+**LVing** is a static analysis framework for detecting memory safety and concurrency vulnerabilities in Rust programs through graph-based program representation. This tool constructs Code Property Graphs (CPGs) from LLVM Intermediate Representation, enabling systematic analysis of low-level memory operations and vulnerability patterns. Built on the Fraunhofer Institute's CPG library, LVing provides a scalable platform for automated vulnerability detection and interactive program exploration via Neo4j graph visualization.
 
 ---
 
@@ -32,7 +32,7 @@ NEO4J_IP=your_neo4j_ip_here
 ## 1. Setup Environment
 ```bash
 git clone <repository-url>
-cd RVing
+cd LVing
 cp .env.template .env
 # Edit .env with your Neo4j credentials
 ```
