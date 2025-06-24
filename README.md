@@ -1,4 +1,4 @@
-# RVing - Rust Vulnerability Detection Framework
+# LVing - Rust Vulnerability Detection Framework
 A comprehensive static analysis tool for identifying memory safety and concurrency vulnerabilities in Rust programs through graph-based visualization and analysis.
 
 ## Overview
