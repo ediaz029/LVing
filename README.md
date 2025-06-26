@@ -19,11 +19,23 @@ A comprehensive static analysis tool for identifying memory safety and concurren
 
 ## Environment Variables
 
-Create a `.env` file in the project root with your Neo4j credentials:
+Create a `.env` file in the project root with your configuration:
 
 ```env
+# Required: Neo4j password
 NEO4J_PASSWORD=your_password_here
+
+# IP address where Neo4j and backend services will be accessible
+# For local development: localhost
+# For remote deployment: your server's external IP
 NEO4J_IP=your_neo4j_ip_here
+
+# Backend host configuration (defaults to NEO4J_IP if not specified)
+BACKEND_HOST=your_backend_ip_here
+BACKEND_PORT=8000
+
+# Neo4j browser host (what users see in browser, usually same as NEO4J_IP)
+NEO4J_BROWSER_HOST=your_neo4j_ip_here
 ```
 ---
 
@@ -33,8 +45,11 @@ NEO4J_IP=your_neo4j_ip_here
 ```bash
 git clone <repository-url>
 cd LVing
-cp .env.template .env
-# Edit .env with your Neo4j credentials
+cp .env.example .env
+# Edit .env with your configuration:
+# - Set NEO4J_PASSWORD to a secure password
+# - Set NEO4J_IP to your server's IP (or localhost for local development)
+# - Optionally customize BACKEND_HOST if different from NEO4J_IP
 ```
 ## 2. Deploy Services
 ```bash

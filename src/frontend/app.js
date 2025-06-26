@@ -1,3 +1,6 @@
+// Global variable to store backend URL
+let BACKEND_URL = "http://localhost:8000"; // fallback default
+
 document.getElementById("codeForm").onsubmit = async (e) => {
   e.preventDefault();
   
@@ -10,7 +13,7 @@ document.getElementById("codeForm").onsubmit = async (e) => {
   
   try {
     const formData = new FormData(e.target);
-    const res = await fetch("http://34.28.0.180:8000/convert/", {
+    const res = await fetch(`${BACKEND_URL}/convert/`, {
       method: "POST", 
       body: formData
     });
@@ -53,8 +56,21 @@ document.getElementById("codeForm").onsubmit = async (e) => {
 };
 
 window.addEventListener('load', async () => {
+  // Try to load configuration from backend
   try {
-    const response = await fetch("http://34.28.0.180:8000/");
+    const configResponse = await fetch(`${BACKEND_URL}/config`);
+    if (configResponse.ok) {
+      const config = await configResponse.json();
+      BACKEND_URL = config.backend_url;
+      console.log("[SUCCESS] Backend config loaded:", config);
+    }
+  } catch (error) {
+    console.warn("[WARNING] Could not load backend config, using fallback URL:", BACKEND_URL);
+  }
+
+  // Test backend connectivity
+  try {
+    const response = await fetch(`${BACKEND_URL}/`);
     if (response.ok) {
       console.log("[SUCCESS] Backend connected");
     }
