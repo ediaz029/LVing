@@ -1,5 +1,5 @@
-# LVing - Rust Vulnerability Detection Framework
-A comprehensive static analysis tool for identifying memory safety and concurrency vulnerabilities in Rust programs through graph-based visualization and analysis.
+# LVing - Vulnerability Detection Framework
+A comprehensive static analysis tool built for identifying memory safety and concurrency vulnerabilities in programming languages leveraging the LLVM compiler framework, with a particular interest in the Rust language, through graph-based visualization and analysis.
 
 ## Overview
 **LVing** is a static analysis framework for detecting memory safety and concurrency vulnerabilities in Rust programs through graph-based program representation. This tool constructs Code Property Graphs (CPGs) from LLVM Intermediate Representation, enabling systematic analysis of low-level memory operations and vulnerability patterns. Built on the Fraunhofer Institute's CPG library, LVing provides a scalable platform for automated vulnerability detection and interactive program exploration via Neo4j graph visualization.
