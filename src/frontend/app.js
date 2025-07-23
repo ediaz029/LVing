@@ -32,17 +32,38 @@ fn main() {
         handle.join().unwrap();
     }
 }`,
-  fibonacci: `fn fibonacci(n: u32) -> u32 {
-    match n {
-        0 => 0,
-        1 => 1,
-        _ => fibonacci(n - 1) + fibonacci(n - 2),
-    }
+  unsafecell: `use std::sync::Arc;
+use std::thread;
+use std::cell::UnsafeCell;
+
+struct SharedData {
+    value: UnsafeCell<i32>,
 }
 
+unsafe impl Send for SharedData {}
+unsafe impl Sync for SharedData {}
+
 fn main() {
-    for i in 0..10 {
-        println!("{}: {}", i, fibonacci(i));
+    let data = Arc::new(SharedData {
+        value: UnsafeCell::new(42),
+    });
+
+    let handles: Vec<_> = (0..2)
+        .map(|_| {
+            let data = Arc::clone(&data);
+            thread::spawn(move || {
+                unsafe {
+                    // directly modify the value inside UnsafeCell
+                    let value_ptr = data.value.get();
+                    *value_ptr += 1; // modify the value concurrently -> data race
+                    println!("Value modified in thread: {}", *value_ptr);
+                }
+            })
+        })
+        .collect();
+
+    for handle in handles {
+        handle.join().unwrap();
     }
 }`
 };
@@ -57,9 +78,80 @@ function getCypherEndpoint() {
 const CYPHER_EXAMPLE = `MATCH (v:ValueDeclaration)
 WHERE v.code CONTAINS 'sendable_ptr'
 WITH v
-MATCH path = (v)-[:DFG*1..6]-(access)
+MATCH path = (v)-[:DFG|EOG|AST|REFERS_TO|PDG|USAGE|SCOPE*1..6]-(access)
 WHERE (access:BinaryOperator OR access:UnaryOperator)
 RETURN path`;
+
+// Additional example queries for different edge types
+const CYPHER_EXAMPLES = {
+  all_edges: `MATCH (v:ValueDeclaration)
+WHERE v.code CONTAINS 'sendable_ptr'
+WITH v
+MATCH path = (v)-[:DFG|EOG|AST|REFERS_TO|PDG|USAGE|SCOPE*1..6]-(access)
+WHERE (access:BinaryOperator OR access:UnaryOperator)
+RETURN path`,
+  
+  dfg_only: `MATCH (v:ValueDeclaration)
+WHERE v.code CONTAINS 'sendable_ptr'
+WITH v
+MATCH path = (v)-[:DFG*1..6]-(access)
+WHERE (access:BinaryOperator OR access:UnaryOperator)
+RETURN path`,
+  
+  eog_only: `MATCH (v:ValueDeclaration)
+WHERE v.code CONTAINS 'sendable_ptr'
+WITH v
+MATCH path = (v)-[:EOG*1..6]-(access)
+WHERE (access:BinaryOperator OR access:UnaryOperator)
+RETURN path`,
+  
+  ast_only: `MATCH (v:ValueDeclaration)
+WHERE v.code CONTAINS 'sendable_ptr'
+WITH v
+MATCH path = (v)-[:AST*1..6]-(access)
+WHERE (access:BinaryOperator OR access:UnaryOperator)
+RETURN path`,
+  
+  refers_to: `MATCH (v:ValueDeclaration)
+WHERE v.code CONTAINS 'sendable_ptr'
+WITH v
+MATCH path = (v)-[:REFERS_TO*1..3]-(ref)
+RETURN path`,
+  
+  pdg_only: `MATCH (v:ValueDeclaration)
+WHERE v.code CONTAINS 'sendable_ptr'
+WITH v
+MATCH path = (v)-[:PDG*1..6]-(dep)
+RETURN path`,
+  
+  usage_scope: `MATCH (v:ValueDeclaration)
+WHERE v.code CONTAINS 'sendable_ptr'
+WITH v
+MATCH path = (v)-[:USAGE|SCOPE*1..4]-(related)
+RETURN path`,
+  
+  full_context: `MATCH (start)
+WHERE start.code CONTAINS 'sendable_ptr'
+WITH start
+CALL {
+  WITH start
+  MATCH path1 = (start)-[:DFG*1..4]-(dfg_node)
+  RETURN path1
+  UNION
+  WITH start
+  MATCH path2 = (start)-[:EOG*1..3]-(eog_node)
+  RETURN path2
+  UNION
+  WITH start
+  MATCH path3 = (start)-[:AST*1..2]-(ast_node)
+  RETURN path3
+  UNION
+  WITH start
+  MATCH path4 = (start)-[:REFERS_TO]-(ref_node)
+  RETURN path4
+}
+RETURN path1, path2, path3, path4`
+};
 
 // Initialize CodeMirror editor
 let codeEditor;
@@ -88,15 +180,54 @@ document.addEventListener('DOMContentLoaded', () => {
     // Set editor height
     codeEditor.setSize("100%", "500px");
 
-    // Example button logic
-    document.querySelectorAll('.example-btn').forEach(btn => {
-      btn.addEventListener('click', function() {
-        const example = this.getAttribute('data-example');
-        if (EXAMPLES[example]) {
-          codeEditor.setValue(EXAMPLES[example]);
+    // Code examples dropdown functionality
+    const codeExamplesDropdown = document.getElementById('codeExamples');
+    const codePreview = document.getElementById('codePreview');
+    const previewTitle = document.getElementById('previewTitle');
+    const previewCode = document.getElementById('previewCode');
+    const useCodeBtn = document.getElementById('useCodeBtn');
+    
+    // Code example titles
+    const exampleTitles = {
+      datarace: '🧵 Data Race Example (SendablePtr)',
+      unsafecell: '⚠️ UnsafeCell Example'
+    };
+    
+    if (codeExamplesDropdown) {
+      codeExamplesDropdown.addEventListener('change', function() {
+        const selectedExample = this.value;
+        
+        if (selectedExample && EXAMPLES[selectedExample]) {
+          // Show preview
+          codePreview.style.display = 'block';
+          previewTitle.textContent = exampleTitles[selectedExample] || 'Code Example';
+          previewCode.textContent = EXAMPLES[selectedExample];
+          
+          // Store current selection for use button
+          useCodeBtn.setAttribute('data-example', selectedExample);
+          
+          console.log('[DEBUG] Showing code preview for:', selectedExample);
+        } else {
+          // Hide preview if no selection
+          codePreview.style.display = 'none';
         }
       });
-    });
+    }
+    
+    // Use code button functionality
+    if (useCodeBtn) {
+      useCodeBtn.addEventListener('click', function() {
+        const selectedExample = this.getAttribute('data-example');
+        if (selectedExample && EXAMPLES[selectedExample]) {
+          codeEditor.setValue(EXAMPLES[selectedExample]);
+          console.log('[DEBUG] Used code example:', selectedExample);
+          
+          // Optionally hide preview after using
+          codePreview.style.display = 'none';
+          codeExamplesDropdown.value = '';
+        }
+      });
+    }
 
     // Cypher CodeMirror setup
     cypherEditor = CodeMirror(document.getElementById("cypherEditor"), {
@@ -115,21 +246,70 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     cypherEditor.setSize("100%", "120px");
 
+    // Query examples dropdown functionality
+    const queryExamplesDropdown = document.getElementById('queryExamples');
+    if (queryExamplesDropdown) {
+      queryExamplesDropdown.addEventListener('change', function() {
+        const selectedExample = this.value;
+        if (CYPHER_EXAMPLES[selectedExample]) {
+          cypherEditor.setValue(CYPHER_EXAMPLES[selectedExample]);
+          console.log('[DEBUG] Loaded query example:', selectedExample);
+        }
+      });
+    }
+
   } catch (error) {
     console.error("Failed to load CodeMirror:", error);
     // Fallback to simple textarea if CodeMirror fails
     const container = document.getElementById("codeEditor");
     container.innerHTML = '<textarea style="width:100%;height:500px;font-family:monospace;padding:10px;border:none;outline:none;" placeholder="// Paste your Rust code here...\n\nfn main() {\n    println!(\"Hello, world!\");\n}"></textarea>';
-    // Example button logic for fallback
-    document.querySelectorAll('.example-btn').forEach(btn => {
-      btn.addEventListener('click', function() {
-        const example = this.getAttribute('data-example');
-        const textarea = container.querySelector('textarea');
-        if (EXAMPLES[example] && textarea) {
-          textarea.value = EXAMPLES[example];
+    
+    // Fallback functionality for code examples dropdown
+    const codeExamplesDropdown = document.getElementById('codeExamples');
+    const codePreview = document.getElementById('codePreview');
+    const previewTitle = document.getElementById('previewTitle');
+    const previewCode = document.getElementById('previewCode');
+    const useCodeBtn = document.getElementById('useCodeBtn');
+    
+    // Code example titles
+    const exampleTitles = {
+      datarace: '🧵 Data Race Example (SendablePtr)',
+      unsafecell: '⚠️ UnsafeCell Example'
+    };
+    
+    if (codeExamplesDropdown) {
+      codeExamplesDropdown.addEventListener('change', function() {
+        const selectedExample = this.value;
+        
+        if (selectedExample && EXAMPLES[selectedExample]) {
+          // Show preview
+          codePreview.style.display = 'block';
+          previewTitle.textContent = exampleTitles[selectedExample] || 'Code Example';
+          previewCode.textContent = EXAMPLES[selectedExample];
+          
+          // Store current selection for use button
+          useCodeBtn.setAttribute('data-example', selectedExample);
+        } else {
+          // Hide preview if no selection
+          codePreview.style.display = 'none';
         }
       });
-    });
+    }
+    
+    // Use code button functionality for fallback
+    if (useCodeBtn) {
+      useCodeBtn.addEventListener('click', function() {
+        const selectedExample = this.getAttribute('data-example');
+        const textarea = container.querySelector('textarea');
+        if (selectedExample && EXAMPLES[selectedExample] && textarea) {
+          textarea.value = EXAMPLES[selectedExample];
+          
+          // Optionally hide preview after using
+          codePreview.style.display = 'none';
+          codeExamplesDropdown.value = '';
+        }
+      });
+    }
   }
 });
 
@@ -138,6 +318,8 @@ document.getElementById("codeForm").onsubmit = async (e) => {
   
   const submitButton = e.target.querySelector('button[type="submit"]');
   const resultElement = document.getElementById("result");
+  
+  console.log('[DEBUG] Starting code conversion');
   
   // Get code from the editor
   let code;
@@ -149,6 +331,9 @@ document.getElementById("codeForm").onsubmit = async (e) => {
     code = textarea ? textarea.value : '';
   }
   
+  console.log('[DEBUG] Code length:', code.length);
+  console.log('[DEBUG] Backend URL:', BACKEND_URL);
+  
   submitButton.disabled = true;
   submitButton.textContent = "Processing...";
   resultElement.textContent = "Analyzing code...";
@@ -157,16 +342,23 @@ document.getElementById("codeForm").onsubmit = async (e) => {
     const formData = new FormData();
     formData.append("code", code);
     
+    console.log('[DEBUG] Sending request to:', `${BACKEND_URL}/convert/`);
+    
     const res = await fetch(`${BACKEND_URL}/convert/`, {
       method: "POST", 
       body: formData
     });
     
+    console.log('[DEBUG] Convert response status:', res.status);
+    
     if (!res.ok) {
+      const errorText = await res.text();
+      console.log('[DEBUG] Convert error response:', errorText);
       throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     }
     
     const json = await res.json();
+    console.log('[DEBUG] Convert response data:', json);
     
     let output = "";
     if (json.return_code !== 0) {
@@ -189,9 +381,10 @@ document.getElementById("codeForm").onsubmit = async (e) => {
     }
     
     resultElement.textContent = output;
+    console.log('[DEBUG] Results displayed successfully');
     
   } catch (error) {
-    console.error("Analysis failed:", error);
+    console.error('[DEBUG] Convert error occurred:', error);
     resultElement.textContent = `[ERROR] ${error.message}\n\nPlease check:\n- Backend service is running\n- Rust code syntax is valid\n- Network connectivity`;
   } finally {
     submitButton.disabled = false;
@@ -205,19 +398,49 @@ if (runCypherBtn) {
   runCypherBtn.addEventListener('click', async () => {
     const query = cypherEditor.getValue();
     const graphDiv = document.getElementById('graphResult');
+    
+    console.log('[DEBUG] Starting Cypher query execution');
+    console.log('[DEBUG] Query:', query);
+    console.log('[DEBUG] Endpoint:', getCypherEndpoint());
+    
     graphDiv.innerHTML = '<div style="color:#fff;padding:1rem;">Running query...</div>';
+    
     try {
       const res = await fetch(getCypherEndpoint(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query })
       });
-      if (!res.ok) throw new Error('Query failed');
+      
+      console.log('[DEBUG] Response status:', res.status);
+      console.log('[DEBUG] Response ok:', res.ok);
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.log('[DEBUG] Error response:', errorText);
+        throw new Error(`Query failed: ${res.status} - ${errorText}`);
+      }
+      
       const data = await res.json();
-      if (!data.nodes || !data.edges) throw new Error('Invalid data format from backend');
+      console.log('[DEBUG] Response data:', data);
+      console.log('[DEBUG] Nodes count:', data.nodes ? data.nodes.length : 'undefined');
+      console.log('[DEBUG] Edges count:', data.edges ? data.edges.length : 'undefined');
+      
+      if (!data.nodes && !data.edges) {
+        throw new Error('No data returned from query');
+      }
+      
+      if (data.nodes && data.nodes.length === 0 && data.edges && data.edges.length === 0) {
+        graphDiv.innerHTML = '<div style="color:#ffa500;padding:1rem;">Query executed successfully but returned no results. Try a different query or check if data exists in Neo4j.</div>';
+        return;
+      }
+      
       renderGraph(data, graphDiv);
+      console.log('[DEBUG] Graph rendered successfully');
+      
     } catch (e) {
-      graphDiv.innerHTML = `<div style='color:#f66;padding:1rem;'>${e.message}</div>`;
+      console.error('[DEBUG] Error occurred:', e);
+      graphDiv.innerHTML = `<div style='color:#f66;padding:1rem;'>Error: ${e.message}</div>`;
     }
   });
 }
@@ -226,19 +449,1048 @@ if (runCypherBtn) {
 function renderGraph(data, container) {
   // Clear previous graph
   container.innerHTML = '';
-  // Expecting data: { nodes: [{id, label, ...}], edges: [{from, to, label, ...}] }
-  const nodes = new vis.DataSet(data.nodes || []);
-  const edges = new vis.DataSet(data.edges || data.relationships || []);
-  const network = new vis.Network(
+  
+  // Show graph controls
+  const graphControls = document.getElementById('graphControls');
+  if (graphControls) {
+    graphControls.style.display = 'block';
+  }
+  
+  // Store original data for filtering
+  window.originalGraphData = {
+    nodes: data.nodes || [],
+    edges: data.edges || data.relationships || []
+  };
+  
+  // Initial render with all data
+  updateGraphDisplay(window.originalGraphData, container);
+  
+  // Setup filtering event listeners
+  setupGraphFilters();
+}
+
+// Global variables for graph filtering
+let currentNetwork = null;
+let allNodes = null;
+let allEdges = null;
+
+function updateGraphDisplay(data, container) {
+  // Clear previous graph
+  container.innerHTML = '';
+  
+  // Enhance nodes with better tooltips
+  const enhancedNodes = (data.nodes || []).map(node => {
+    // Create a rich tooltip from node properties
+    let tooltipText = `Node: ${node.label}\nID: ${node.id}`;
+    
+    if (node.title && typeof node.title === 'object') {
+      // Add key properties to tooltip
+      Object.entries(node.title).forEach(([key, value]) => {
+        if (key !== 'id' && value !== null && value !== undefined) {
+          tooltipText += `\n${key}: ${value}`;
+        }
+      });
+    }
+    
+    console.log('[DEBUG] Creating node with tooltip:', tooltipText);
+    
+    return {
+      ...node,
+      title: tooltipText,  // This creates the tooltip
+      font: { color: '#fff', size: 12 },
+      shape: getNodeShape(node),
+      color: getNodeColor(node),
+      size: 25
+    };
+  });
+  
+  // Enhance edges with tooltips and styling based on edge type
+  const enhancedEdges = (data.edges || data.relationships || []).map(edge => {
+    let tooltipText = `Relationship: ${edge.label}\nFrom: ${edge.from} → To: ${edge.to}`;
+    
+    if (edge.title && typeof edge.title === 'object') {
+      Object.entries(edge.title).forEach(([key, value]) => {
+        if (key !== 'id' && value !== null && value !== undefined) {
+          tooltipText += `\n${key}: ${value}`;
+        }
+      });
+    }
+    
+    // Get edge styling based on relationship type
+    const edgeStyle = getEdgeStyle(edge);
+    
+    return {
+      ...edge,
+      title: tooltipText,
+      ...edgeStyle
+    };
+  });
+  
+  allNodes = new vis.DataSet(enhancedNodes);
+  allEdges = new vis.DataSet(enhancedEdges);
+  
+  currentNetwork = new vis.Network(
     container,
-    { nodes, edges },
+    { nodes: allNodes, edges: allEdges },
     {
-      nodes: { shape: 'dot', size: 20, font: { color: '#fff' }, color: { background: '#007acc', border: '#fff' } },
-      edges: { color: { color: '#fff' }, arrows: 'to', font: { color: '#fff' } },
+      nodes: { 
+        shape: 'dot', 
+        size: 25, 
+        font: { color: '#fff', size: 12 },
+        borderWidth: 2,
+        shadow: { enabled: true, color: 'rgba(0,0,0,0.3)', size: 5 },
+        chosen: true
+      },
+      edges: { 
+        color: { color: '#fff' }, 
+        arrows: 'to', 
+        font: { color: '#fff', size: 10 },
+        width: 2,
+        smooth: { type: 'continuous' },
+        chosen: true
+      },
       layout: { improvedLayout: true },
-      physics: { enabled: true }
+      physics: { enabled: true, stabilization: { iterations: 100 } },
+      interaction: {
+        hover: true,
+        tooltipDelay: 300,
+        hideEdgesOnDrag: false,
+        selectConnectedEdges: false,
+        zoomView: true,
+        dragView: true
+      },
+      configure: {
+        enabled: false
+      }
     }
   );
+
+  // Add debugging for tooltip events
+  currentNetwork.on("hoverNode", function (params) {
+    console.log('[DEBUG] Hovering over node:', params.node);
+    const nodeData = allNodes.get(params.node);
+    console.log('[DEBUG] Node data:', nodeData);
+    console.log('[DEBUG] Node title (tooltip):', nodeData.title);
+    
+    // Create custom tooltip
+    showCustomTooltip(params.event, nodeData.title);
+  });
+
+  currentNetwork.on("hoverEdge", function (params) {
+    console.log('[DEBUG] Hovering over edge:', params.edge);
+    const edgeData = allEdges.get(params.edge);
+    console.log('[DEBUG] Edge data:', edgeData);
+    console.log('[DEBUG] Edge title (tooltip):', edgeData.title);
+    
+    // Create custom tooltip
+    showCustomTooltip(params.event, edgeData.title);
+  });
+
+  currentNetwork.on("blurNode", function (params) {
+    hideCustomTooltip();
+  });
+
+  currentNetwork.on("blurEdge", function (params) {
+    hideCustomTooltip();
+  });
+
+  // Add context menu for node expansion/removal
+  currentNetwork.on("oncontext", function (params) {
+    params.event.preventDefault();
+    if (params.nodes.length > 0) {
+      showNodeContextMenu(params.event, params.nodes[0]);
+    } else {
+      hideNodeContextMenu();
+    }
+  });
+
+  // Hide context menu on canvas click
+  currentNetwork.on("click", function (params) {
+    hideNodeContextMenu();
+  });
+
+  console.log('[DEBUG] Network created with', enhancedNodes.length, 'nodes and', enhancedEdges.length, 'edges');
+  
+  // Update filter results counter
+  updateFilterResults(enhancedNodes.length, window.originalGraphData.nodes.length);
+}
+
+// Custom tooltip functions
+function showCustomTooltip(event, text) {
+  hideCustomTooltip(); // Remove any existing tooltip
+  
+  const tooltip = document.createElement('div');
+  tooltip.id = 'custom-tooltip';
+  tooltip.style.cssText = `
+    position: absolute;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: monospace;
+    white-space: pre-line;
+    z-index: 1000;
+    pointer-events: none;
+    max-width: 300px;
+    border: 1px solid #444;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  `;
+  
+  tooltip.textContent = text;
+  document.body.appendChild(tooltip);
+  
+  // Get mouse position from different possible event properties
+  let x = 0, y = 0;
+  
+  if (event.pointer && event.pointer.DOM) {
+    x = event.pointer.DOM.x + 10;
+    y = event.pointer.DOM.y - 10;
+  } else if (event.event && event.event.clientX) {
+    x = event.event.clientX + 10;
+    y = event.event.clientY - 10;
+  } else if (event.clientX !== undefined) {
+    x = event.clientX + 10;
+    y = event.clientY - 10;
+  } else {
+    // Fallback: position tooltip in center of the graph container
+    const graphContainer = document.getElementById('graphResult');
+    if (graphContainer) {
+      const rect = graphContainer.getBoundingClientRect();
+      x = rect.left + 50;
+      y = rect.top + 50;
+    } else {
+      x = 100;
+      y = 100;
+    }
+  }
+  
+  tooltip.style.left = x + 'px';
+  tooltip.style.top = y + 'px';
+  
+  console.log('[DEBUG] Custom tooltip created at', x, y, 'with text:', text);
+  console.log('[DEBUG] Event object:', event);
+}
+
+function hideCustomTooltip() {
+  const existing = document.getElementById('custom-tooltip');
+  if (existing) {
+    existing.remove();
+    console.log('[DEBUG] Custom tooltip removed');
+  }
+}
+
+// Graph filtering functions
+function setupGraphFilters() {
+  const searchInput = document.getElementById('nodeSearch');
+  const clearButton = document.getElementById('clearFilters');
+  const filterCheckboxes = document.querySelectorAll('#graphControls input[type="checkbox"]');
+  
+  // Search input with debounce
+  let searchTimeout;
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      clearTimeout(searchTimeout);
+      searchTimeout = setTimeout(() => {
+        applyGraphFilters();
+      }, 300);
+    });
+  }
+  
+  // Filter checkboxes
+  filterCheckboxes.forEach(checkbox => {
+    checkbox.addEventListener('change', applyGraphFilters);
+  });
+  
+  // Clear filters button
+  if (clearButton) {
+    clearButton.addEventListener('click', clearAllFilters);
+  }
+  
+  // Hide context menu on outside click
+  document.addEventListener('click', hideNodeContextMenu);
+}
+
+// Node Context Menu Functions
+function showNodeContextMenu(event, nodeId) {
+  hideNodeContextMenu(); // Remove any existing menu
+  
+  const menu = document.createElement('div');
+  menu.id = 'node-context-menu';
+  menu.style.cssText = `
+    position: absolute;
+    background: rgba(40, 40, 40, 0.95);
+    color: white;
+    border: 1px solid #666;
+    border-radius: 6px;
+    padding: 8px 0;
+    font-size: 13px;
+    font-family: sans-serif;
+    z-index: 2000;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    min-width: 160px;
+    backdrop-filter: blur(5px);
+  `;
+  
+  // Get node data for context
+  const nodeData = allNodes.get(nodeId);
+  const hiddenConnections = getHiddenConnections(nodeId);
+  
+  // Also check total connections in original data for debugging
+  const totalConnections = window.originalGraphData ? 
+    window.originalGraphData.edges.filter(edge => edge.from === nodeId || edge.to === nodeId).length : 0;
+  
+  console.log('[DEBUG] Context menu for node:', nodeId, {
+    hiddenConnections: hiddenConnections.count,
+    totalConnections,
+    nodeData
+  });
+  
+  // Create menu items
+  const menuItems = [
+    {
+      label: `📈 Expand (${hiddenConnections.count}/${totalConnections} connections)`,
+      action: () => expandNode(nodeId),
+      enabled: hiddenConnections.count > 0,
+      debug: `Hidden: ${hiddenConnections.count}, Total: ${totalConnections}, Node: ${nodeId}`
+    },
+    {
+      label: '👁️ Expand All Connected',
+      action: () => expandAllConnected(nodeId),
+      enabled: totalConnections > 0
+    },
+    { separator: true },
+    {
+      label: '🗑️ Remove from View',
+      action: () => removeNodeFromView(nodeId),
+      enabled: true,
+      color: '#dc3545'
+    },
+    {
+      label: '🔍 Focus on Node',
+      action: () => focusOnNode(nodeId),
+      enabled: true
+    },
+    { separator: true },
+    {
+      label: `📋 Copy Node ID (${nodeId})`,
+      action: () => copyToClipboard(nodeId),
+      enabled: true
+    },
+    {
+      label: '🔧 Debug Node Info',
+      action: () => showNodeDebugInfo(nodeId),
+      enabled: true,
+      color: '#17a2b8'
+    }
+  ];
+  
+  menuItems.forEach(item => {
+    if (item.separator) {
+      const separator = document.createElement('div');
+      separator.style.cssText = 'height: 1px; background: #666; margin: 4px 8px;';
+      menu.appendChild(separator);
+    } else {
+      const menuItem = document.createElement('div');
+      menuItem.style.cssText = `
+        padding: 8px 16px;
+        cursor: ${item.enabled ? 'pointer' : 'not-allowed'};
+        opacity: ${item.enabled ? '1' : '0.5'};
+        transition: background-color 0.2s;
+        color: ${item.color || 'white'};
+      `;
+      
+      if (item.enabled) {
+        menuItem.addEventListener('mouseenter', () => {
+          menuItem.style.backgroundColor = 'rgba(70, 70, 70, 0.8)';
+        });
+        menuItem.addEventListener('mouseleave', () => {
+          menuItem.style.backgroundColor = 'transparent';
+        });
+        menuItem.addEventListener('click', (e) => {
+          e.stopPropagation();
+          item.action();
+          hideNodeContextMenu();
+        });
+      } else {
+        // Add tooltip for disabled items to show why they're disabled
+        if (item.debug) {
+          menuItem.title = `Disabled: ${item.debug}`;
+        }
+      }
+      
+      menuItem.textContent = item.label;
+      menu.appendChild(menuItem);
+    }
+  });
+  
+  document.body.appendChild(menu);
+  
+  // Position menu
+  const x = event.clientX || event.pageX;
+  const y = event.clientY || event.pageY;
+  
+  // Ensure menu stays within viewport
+  const rect = menu.getBoundingClientRect();
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  
+  let finalX = x;
+  let finalY = y;
+  
+  if (x + rect.width > viewportWidth) {
+    finalX = x - rect.width;
+  }
+  
+  if (y + rect.height > viewportHeight) {
+    finalY = y - rect.height;
+  }
+  
+  menu.style.left = finalX + 'px';
+  menu.style.top = finalY + 'px';
+  
+  console.log('[DEBUG] Context menu shown for node:', nodeId, 'at', finalX, finalY);
+}
+
+function hideNodeContextMenu() {
+  const existing = document.getElementById('node-context-menu');
+  if (existing) {
+    existing.remove();
+  }
+}
+
+function getHiddenConnections(nodeId) {
+  if (!window.originalGraphData) {
+    console.log('[DEBUG] No original graph data available');
+    return { count: 0, nodes: [], edges: [] };
+  }
+  
+  // Find all edges connected to this node in original data
+  const originalConnectedEdges = window.originalGraphData.edges.filter(edge => 
+    edge.from === nodeId || edge.to === nodeId
+  );
+  
+  console.log('[DEBUG] Original connected edges for node', nodeId, ':', originalConnectedEdges.map(e => ({
+    id: e.id,
+    from: e.from,
+    to: e.to,
+    label: e.label
+  })));
+  
+  // Find currently VISIBLE edges (what's actually shown in the graph)
+  const currentlyVisibleEdges = [];
+  if (allEdges) {
+    const visibleEdgeIds = allEdges.getIds();
+    console.log('[DEBUG] All visible edge IDs:', visibleEdgeIds);
+    
+    visibleEdgeIds.forEach(edgeId => {
+      const edge = allEdges.get(edgeId);
+      if (edge.from === nodeId || edge.to === nodeId) {
+        currentlyVisibleEdges.push(edge);
+      }
+    });
+  } else {
+    console.log('[DEBUG] No allEdges dataset available');
+  }
+  
+  console.log('[DEBUG] Currently visible edges for node', nodeId, ':', currentlyVisibleEdges.map(e => ({
+    id: e.id,
+    from: e.from,
+    to: e.to,
+    label: e.label
+  })));
+  
+  // Calculate hidden connections (edges that exist in original data but not currently visible)
+  const hiddenEdges = originalConnectedEdges.filter(originalEdge => 
+    !currentlyVisibleEdges.some(visibleEdge => visibleEdge.id === originalEdge.id)
+  );
+  
+  console.log('[DEBUG] Hidden edges for node', nodeId, ':', hiddenEdges.map(e => ({
+    id: e.id,
+    from: e.from,
+    to: e.to,
+    label: e.label
+  })));
+  
+  // Get hidden connected nodes
+  const hiddenNodeIds = new Set();
+  hiddenEdges.forEach(edge => {
+    const connectedNodeId = edge.from === nodeId ? edge.to : edge.from;
+    hiddenNodeIds.add(connectedNodeId);
+  });
+  
+  const hiddenNodes = window.originalGraphData.nodes.filter(node => 
+    hiddenNodeIds.has(node.id)
+  );
+  
+  const result = {
+    count: hiddenEdges.length,
+    nodes: hiddenNodes,
+    edges: hiddenEdges
+  };
+  
+  console.log('[DEBUG] Hidden connections summary for node', nodeId, ':', {
+    originalConnectedEdges: originalConnectedEdges.length,
+    currentlyVisibleEdges: currentlyVisibleEdges.length,
+    hiddenEdges: hiddenEdges.length,
+    hiddenNodes: hiddenNodes.length,
+    result
+  });
+  
+  return result;
+}
+
+function getCurrentFilteredData() {
+  // Get currently applied filters and return filtered data
+  if (!window.originalGraphData) return { nodes: [], edges: [] };
+  
+  const searchTerm = document.getElementById('nodeSearch')?.value.toLowerCase() || '';
+  const enabledFilters = getEnabledFilters();
+  
+  const filteredNodes = window.originalGraphData.nodes.filter(node => {
+    const matchesSearch = searchTerm === '' || nodeMatchesSearch(node, searchTerm);
+    const matchesType = nodeMatchesTypeFilter(node, enabledFilters);
+    return matchesSearch && matchesType;
+  });
+  
+  const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
+  const filteredEdges = window.originalGraphData.edges.filter(edge => {
+    return filteredNodeIds.has(edge.from) && filteredNodeIds.has(edge.to);
+  });
+  
+  return { nodes: filteredNodes, edges: filteredEdges };
+}
+
+function expandNode(nodeId) {
+  console.log('[DEBUG] Attempting to expand node:', nodeId);
+  const hiddenConnections = getHiddenConnections(nodeId);
+  
+  console.log('[DEBUG] Hidden connections found:', hiddenConnections);
+  
+  if (hiddenConnections.count === 0) {
+    console.log('[DEBUG] No hidden connections to expand for node:', nodeId);
+    showTemporaryMessage('No hidden connections to expand');
+    return;
+  }
+  
+  // Get current visible data (what's actually displayed)
+  const currentlyVisibleNodes = [];
+  const currentlyVisibleEdges = [];
+  
+  if (allNodes) {
+    const visibleNodeIds = allNodes.getIds();
+    visibleNodeIds.forEach(nodeId => {
+      currentlyVisibleNodes.push(allNodes.get(nodeId));
+    });
+  }
+  
+  if (allEdges) {
+    const visibleEdgeIds = allEdges.getIds();
+    visibleEdgeIds.forEach(edgeId => {
+      currentlyVisibleEdges.push(allEdges.get(edgeId));
+    });
+  }
+  
+  // Add hidden nodes (avoid duplicates)
+  const currentNodeIds = new Set(currentlyVisibleNodes.map(n => n.id));
+  const newNodes = hiddenConnections.nodes.filter(node => !currentNodeIds.has(node.id));
+  
+  // Add hidden edges (avoid duplicates)
+  const currentEdgeIds = new Set(currentlyVisibleEdges.map(e => e.id));
+  const newEdges = hiddenConnections.edges.filter(edge => !currentEdgeIds.has(edge.id));
+  
+  console.log('[DEBUG] Will add:', { newNodes: newNodes.length, newEdges: newEdges.length });
+  
+  // Update the display
+  const expandedData = {
+    nodes: [...currentlyVisibleNodes, ...newNodes],
+    edges: [...currentlyVisibleEdges, ...newEdges]
+  };
+  
+  updateGraphDisplay(expandedData, document.getElementById('graphResult'));
+  
+  showTemporaryMessage(`Expanded node: +${newNodes.length} nodes, +${newEdges.length} edges`);
+  console.log('[DEBUG] Expanded node:', nodeId, 'added', newNodes.length, 'nodes and', newEdges.length, 'edges');
+}
+
+function expandAllConnected(nodeId) {
+  console.log('[DEBUG] Attempting to expand all connected for node:', nodeId);
+  
+  // Get all nodes connected to this node through any path length
+  const connectedNodes = findAllConnectedNodes(nodeId);
+  console.log('[DEBUG] Found connected nodes:', connectedNodes.length);
+  
+  // Get current visible data (what's actually displayed)
+  const currentlyVisibleNodes = [];
+  const currentlyVisibleEdges = [];
+  
+  if (allNodes) {
+    const visibleNodeIds = allNodes.getIds();
+    visibleNodeIds.forEach(nodeId => {
+      currentlyVisibleNodes.push(allNodes.get(nodeId));
+    });
+  }
+  
+  if (allEdges) {
+    const visibleEdgeIds = allEdges.getIds();
+    visibleEdgeIds.forEach(edgeId => {
+      currentlyVisibleEdges.push(allEdges.get(edgeId));
+    });
+  }
+  
+  // Get all relevant edges for the connected component
+  const allConnectedNodeIds = new Set([nodeId, ...connectedNodes.map(n => n.id)]);
+  const relevantEdges = window.originalGraphData.edges.filter(edge => 
+    allConnectedNodeIds.has(edge.from) && allConnectedNodeIds.has(edge.to)
+  );
+  
+  // Get all connected nodes data
+  const allConnectedNodesData = [nodeId, ...connectedNodes.map(n => n.id)]
+    .map(id => window.originalGraphData.nodes.find(n => n.id === id))
+    .filter(Boolean);
+  
+  console.log('[DEBUG] Will show connected component:', {
+    totalConnectedNodes: allConnectedNodesData.length,
+    totalRelevantEdges: relevantEdges.length,
+    currentlyVisible: { nodes: currentlyVisibleNodes.length, edges: currentlyVisibleEdges.length }
+  });
+  
+  const expandedData = {
+    nodes: allConnectedNodesData,
+    edges: relevantEdges
+  };
+  
+  updateGraphDisplay(expandedData, document.getElementById('graphResult'));
+  
+  showTemporaryMessage(`Expanded all connected: ${allConnectedNodesData.length} nodes, ${relevantEdges.length} edges`);
+  console.log('[DEBUG] Expanded all connected for node:', nodeId, 'showing', expandedData.nodes.length, 'nodes');
+}
+
+function findAllConnectedNodes(startNodeId) {
+  const visited = new Set();
+  const connected = [];
+  const queue = [startNodeId];
+  
+  while (queue.length > 0) {
+    const currentNodeId = queue.shift();
+    if (visited.has(currentNodeId)) continue;
+    
+    visited.add(currentNodeId);
+    if (currentNodeId !== startNodeId) {
+      const node = window.originalGraphData.nodes.find(n => n.id === currentNodeId);
+      if (node) connected.push(node);
+    }
+    
+    // Find neighbors
+    window.originalGraphData.edges.forEach(edge => {
+      if (edge.from === currentNodeId && !visited.has(edge.to)) {
+        queue.push(edge.to);
+      }
+      if (edge.to === currentNodeId && !visited.has(edge.from)) {
+        queue.push(edge.from);
+      }
+    });
+  }
+  
+  return connected;
+}
+
+function removeNodeFromView(nodeId) {
+  console.log('[DEBUG] Removing node from view:', nodeId);
+  
+  // Get current visible data (what's actually displayed)
+  const currentlyVisibleNodes = [];
+  const currentlyVisibleEdges = [];
+  
+  if (allNodes) {
+    const visibleNodeIds = allNodes.getIds();
+    visibleNodeIds.forEach(id => {
+      if (id !== nodeId) { // Exclude the node we're removing
+        currentlyVisibleNodes.push(allNodes.get(id));
+      }
+    });
+  }
+  
+  if (allEdges) {
+    const visibleEdgeIds = allEdges.getIds();
+    visibleEdgeIds.forEach(edgeId => {
+      const edge = allEdges.get(edgeId);
+      if (edge.from !== nodeId && edge.to !== nodeId) { // Exclude edges connected to the removed node
+        currentlyVisibleEdges.push(edge);
+      }
+    });
+  }
+  
+  updateGraphDisplay({ nodes: currentlyVisibleNodes, edges: currentlyVisibleEdges }, document.getElementById('graphResult'));
+  
+  showTemporaryMessage(`Removed node ${nodeId} from view`);
+  console.log('[DEBUG] Removed node from view:', nodeId, 'remaining:', currentlyVisibleNodes.length, 'nodes');
+}
+
+function focusOnNode(nodeId) {
+  if (currentNetwork) {
+    currentNetwork.focus(nodeId, {
+      scale: 1.5,
+      animation: {
+        duration: 1000,
+        easingFunction: 'easeInOutQuad'
+      }
+    });
+    
+    // Highlight the node temporarily
+    currentNetwork.selectNodes([nodeId]);
+    setTimeout(() => {
+      currentNetwork.unselectAll();
+    }, 2000);
+  }
+  
+  console.log('[DEBUG] Focused on node:', nodeId);
+}
+
+function copyToClipboard(text) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => {
+      console.log('[DEBUG] Copied to clipboard:', text);
+      showTemporaryMessage('Node ID copied to clipboard!');
+    }).catch(err => {
+      console.error('[DEBUG] Failed to copy to clipboard:', err);
+    });
+  } else {
+    // Fallback for older browsers
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+    showTemporaryMessage('Node ID copied to clipboard!');
+  }
+}
+
+function showTemporaryMessage(message) {
+  const toast = document.createElement('div');
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(40, 40, 40, 0.9);
+    color: white;
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    z-index: 3000;
+    animation: slideInRight 0.3s ease-out;
+  `;
+  
+  // Add animation keyframes
+  if (!document.getElementById('toast-animations')) {
+    const style = document.createElement('style');
+    style.id = 'toast-animations';
+    style.textContent = `
+      @keyframes slideInRight {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+      @keyframes slideOutRight {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.animation = 'slideOutRight 0.3s ease-in forwards';
+    setTimeout(() => toast.remove(), 300);
+  }, 2000);
+}
+
+function showNodeDebugInfo(nodeId) {
+  const nodeData = allNodes ? allNodes.get(nodeId) : null;
+  const originalNode = window.originalGraphData ? 
+    window.originalGraphData.nodes.find(n => n.id === nodeId) : null;
+  
+  const totalConnections = window.originalGraphData ? 
+    window.originalGraphData.edges.filter(edge => edge.from === nodeId || edge.to === nodeId) : [];
+  
+  const visibleConnections = allEdges ? 
+    allEdges.getIds().map(id => allEdges.get(id)).filter(edge => edge.from === nodeId || edge.to === nodeId) : [];
+  
+  const debugInfo = {
+    nodeId,
+    label: nodeData?.label || 'Unknown',
+    originalNodeExists: !!originalNode,
+    totalConnectionsInOriginal: totalConnections.length,
+    visibleConnections: visibleConnections.length,
+    hiddenConnections: totalConnections.length - visibleConnections.length,
+    originalDataExists: !!window.originalGraphData,
+    visibleNodesCount: allNodes ? allNodes.length : 0,
+    visibleEdgesCount: allEdges ? allEdges.length : 0
+  };
+  
+  console.log('[DEBUG] Node Debug Info:', debugInfo);
+  console.log('[DEBUG] Total connections:', totalConnections);
+  console.log('[DEBUG] Visible connections:', visibleConnections);
+  
+  const debugMessage = `Node ${nodeId} (${debugInfo.label})\n` +
+    `Total connections: ${debugInfo.totalConnectionsInOriginal}\n` +
+    `Visible: ${debugInfo.visibleConnections}\n` +
+    `Hidden: ${debugInfo.hiddenConnections}\n` +
+    `Check console for details`;
+  
+  showTemporaryMessage(debugMessage);
+}
+
+function applyGraphFilters() {
+  if (!window.originalGraphData || !allNodes || !allEdges) return;
+  
+  const searchTerm = document.getElementById('nodeSearch')?.value.toLowerCase() || '';
+  const enabledFilters = getEnabledFilters();
+  
+  // Filter nodes based on search and type filters
+  const filteredNodes = window.originalGraphData.nodes.filter(node => {
+    // Text search across node properties
+    const matchesSearch = searchTerm === '' || nodeMatchesSearch(node, searchTerm);
+    
+    // Type filter
+    const matchesType = nodeMatchesTypeFilter(node, enabledFilters);
+    
+    return matchesSearch && matchesType;
+  });
+  
+  // Get node IDs for edge filtering
+  const filteredNodeIds = new Set(filteredNodes.map(n => n.id));
+  
+  // Filter edges to only show connections between visible nodes
+  const filteredEdges = window.originalGraphData.edges.filter(edge => {
+    return filteredNodeIds.has(edge.from) && filteredNodeIds.has(edge.to);
+  });
+  
+  // Update the graph display
+  updateGraphDisplay({ nodes: filteredNodes, edges: filteredEdges }, document.getElementById('graphResult'));
+  
+  console.log('[DEBUG] Applied filters:', {
+    searchTerm,
+    enabledFilters,
+    originalNodes: window.originalGraphData.nodes.length,
+    filteredNodes: filteredNodes.length,
+    originalEdges: window.originalGraphData.edges.length,
+    filteredEdges: filteredEdges.length
+  });
+}
+
+function nodeMatchesSearch(node, searchTerm) {
+  // Search in node label
+  if (node.label && node.label.toLowerCase().includes(searchTerm)) {
+    return true;
+  }
+  
+  // Search in node ID
+  if (node.id && node.id.toString().toLowerCase().includes(searchTerm)) {
+    return true;
+  }
+  
+  // Search in node properties
+  if (node.title && typeof node.title === 'object') {
+    const propsString = JSON.stringify(node.title).toLowerCase();
+    if (propsString.includes(searchTerm)) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+function nodeMatchesTypeFilter(node, enabledFilters) {
+  const label = node.label?.toLowerCase() || '';
+  
+  // Check if node matches any enabled filter
+  if (enabledFilters.function && (label.includes('function') || label.includes('method'))) {
+    return true;
+  }
+  
+  if (enabledFilters.variable && (label.includes('variable') || label.includes('declaration'))) {
+    return true;
+  }
+  
+  if (enabledFilters.operator && label.includes('operator')) {
+    return true;
+  }
+  
+  if (enabledFilters.literal && label.includes('literal')) {
+    return true;
+  }
+  
+  // Check for unsafe operations
+  if (enabledFilters.unsafe) {
+    let hasUnsafe = false;
+    if (node.title && typeof node.title === 'object') {
+      const props = JSON.stringify(node.title).toLowerCase();
+      hasUnsafe = props.includes('unsafe') || props.includes('*mut') || props.includes('raw') || props.includes('sendable');
+    }
+    if (hasUnsafe) return true;
+  }
+  
+  // "Other" category for nodes that don't match specific types
+  if (enabledFilters.other) {
+    const isSpecificType = label.includes('function') || label.includes('method') ||
+                          label.includes('variable') || label.includes('declaration') ||
+                          label.includes('operator') || label.includes('literal');
+    
+    if (!isSpecificType) return true;
+  }
+  
+  return false;
+}
+
+function getEnabledFilters() {
+  return {
+    function: document.getElementById('filter-function')?.checked || false,
+    variable: document.getElementById('filter-variable')?.checked || false,
+    operator: document.getElementById('filter-operator')?.checked || false,
+    literal: document.getElementById('filter-literal')?.checked || false,
+    unsafe: document.getElementById('filter-unsafe')?.checked || false,
+    other: document.getElementById('filter-other')?.checked || false
+  };
+}
+
+function clearAllFilters() {
+  // Clear search input
+  const searchInput = document.getElementById('nodeSearch');
+  if (searchInput) {
+    searchInput.value = '';
+  }
+  
+  // Check all filter checkboxes
+  const filterCheckboxes = document.querySelectorAll('#graphControls input[type="checkbox"]');
+  filterCheckboxes.forEach(checkbox => {
+    checkbox.checked = true;
+  });
+  
+  // Reapply filters (which will show everything)
+  applyGraphFilters();
+  
+  console.log('[DEBUG] Cleared all filters');
+}
+
+function updateFilterResults(shown, total) {
+  const resultsElement = document.getElementById('filterResults');
+  if (resultsElement) {
+    resultsElement.textContent = `Showing: ${shown}/${total} nodes`;
+    
+    // Color coding for filter status
+    if (shown === total) {
+      resultsElement.style.color = '#ccc';
+    } else {
+      resultsElement.style.color = '#ffc107';
+    }
+  }
+}
+
+// Helper function to determine node shape based on type
+function getNodeShape(node) {
+  const label = node.label?.toLowerCase() || '';
+  if (label.includes('function') || label.includes('method')) return 'box';
+  if (label.includes('variable') || label.includes('declaration')) return 'circle';
+  if (label.includes('operator')) return 'diamond';
+  if (label.includes('literal')) return 'triangle';
+  return 'dot';  // default
+}
+
+// Helper function to determine node color based on properties
+function getNodeColor(node) {
+  const label = node.label?.toLowerCase() || '';
+  
+  // Color by node type
+  if (label.includes('function')) return { background: '#28a745', border: '#fff' };
+  if (label.includes('variable')) return { background: '#007acc', border: '#fff' };
+  if (label.includes('operator')) return { background: '#ffc107', border: '#fff' };
+  if (label.includes('literal')) return { background: '#6f42c1', border: '#fff' };
+  
+  // Check for unsafe or risky properties
+  if (node.title && typeof node.title === 'object') {
+    const props = JSON.stringify(node.title).toLowerCase();
+    if (props.includes('unsafe') || props.includes('*mut') || props.includes('raw')) {
+      return { background: '#dc3545', border: '#fff' };  // Red for unsafe
+    }
+  }
+  
+  return { background: '#007acc', border: '#fff' };  // Default blue
+}
+
+// Helper function to determine edge style based on relationship type
+function getEdgeStyle(edge) {
+  const label = edge.label?.toUpperCase() || '';
+  
+  // Define colors and styles for different edge types
+  switch (label) {
+    case 'DFG':
+      return {
+        color: { color: '#28a745' },  // Green for data flow
+        width: 2,
+        dashes: false,
+        arrows: { to: { enabled: true, scaleFactor: 1 } }
+      };
+    
+    case 'EOG':
+      return {
+        color: { color: '#007acc' },  // Blue for execution order
+        width: 3,
+        dashes: false,
+        arrows: { to: { enabled: true, scaleFactor: 1.2 } }
+      };
+    
+    case 'AST':
+      return {
+        color: { color: '#6f42c1' },  // Purple for AST structure
+        width: 1,
+        dashes: false,
+        arrows: { to: { enabled: true, scaleFactor: 0.8 } }
+      };
+    
+    case 'REFERS_TO':
+      return {
+        color: { color: '#ffc107' },  // Yellow for references
+        width: 2,
+        dashes: [5, 5],  // Dashed line
+        arrows: { to: { enabled: true, scaleFactor: 1 } }
+      };
+    
+    case 'PDG':
+      return {
+        color: { color: '#e83e8c' },  // Pink for program dependencies
+        width: 2,
+        dashes: [10, 5],
+        arrows: { to: { enabled: true, scaleFactor: 1.1 } }
+      };
+    
+    case 'USAGE':
+      return {
+        color: { color: '#fd7e14' },  // Orange for usage
+        width: 2,
+        dashes: [3, 3],
+        arrows: { to: { enabled: true, scaleFactor: 0.9 } }
+      };
+    
+    case 'SCOPE':
+      return {
+        color: { color: '#20c997' },  // Teal for scope
+        width: 1,
+        dashes: [8, 4],
+        arrows: { to: { enabled: true, scaleFactor: 0.8 } }
+      };
+    
+    default:
+      return {
+        color: { color: '#fff' },     // Default white
+        width: 2,
+        dashes: false,
+        arrows: { to: { enabled: true, scaleFactor: 1 } }
+      };
+  }
 }
 
 window.addEventListener('load', async () => {

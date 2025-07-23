@@ -39,9 +39,12 @@ configurations.all {
 }
 EOF
 
-# Create gradle.properties with LLVM enabled
+# Create gradle.properties with LLVM enabled and optimized memory settings
 RUN cat > gradle.properties <<'EOF'
-org.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -Dkotlin.daemon.jvm.options=-Xmx4g
+org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=512m -Dkotlin.daemon.jvm.options=-Xmx2g
+org.gradle.parallel=true
+org.gradle.configureondemand=true
+org.gradle.caching=true
 systemProp.sonar.gradle.skipCompile=true
 enableJavaFrontend=false
 enableCXXFrontend=false
@@ -55,7 +58,10 @@ enableINIFrontend=false
 EOF
 
 # builds cpg-neo4j with LLVM frontend (this is the correct console)
-RUN ./gradlew :cpg-neo4j:installDist -x test
+# Clean build cache and limit parallel workers to avoid memory issues
+RUN ./gradlew clean && \
+    ./gradlew :cpg-neo4j:installDist -x test --max-workers=2 && \
+    ./gradlew clean
 
 # Verify LLVM frontend is built
 RUN find /opt/cpg -name "*llvm*" -type f | head -5 || echo "LLVM files check"
@@ -66,7 +72,7 @@ COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # copy pipeline script (RVing.sh) and API handler
-COPY RVing.sh handler.py .
+COPY RVing.sh handler.py ./
 
 RUN chmod +x RVing.sh
 
