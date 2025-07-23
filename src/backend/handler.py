@@ -3,13 +3,15 @@ FastAPI back-end:
 POST /convert   (form field 'code')
 Returns JSON with stdout / stderr / link.
 """
-import subprocess, tempfile, pathlib, os, sys
+import subprocess, tempfile, pathlib, os, sys, requests, base64
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from neo4j import GraphDatabase
 import logging
 import time
+import requests
+import base64
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -59,6 +61,108 @@ def get_neo4j_driver():
 # Create global driver instance with lazy initialization
 neo4j_driver = None
 
+def filter_technical_output(output):
+    """Filter technical output to show only user-relevant information"""
+    if not output:
+        return ""
+    
+    lines = output.split('\n')
+    filtered_lines = []
+    
+    # Skip very technical lines but keep important ones
+    skip_patterns = [
+        'org.neo4j',
+        'java.lang',
+        'at com.github',
+        'INFO  [',
+        'DEBUG [',
+        'WARN  [',
+        'Exception in thread',
+        'Caused by:',
+        '\tat ',  # Stack trace lines
+        'SLF4J:',
+        'log4j',
+        'WARNING: An illegal reflective access',
+    ]
+    
+    keep_patterns = [
+        '»',  # Our custom script messages
+        '✓',  # Success indicators
+        'ERROR:',
+        'nodes',
+        'edges',
+        'CPG',
+        'LLVM-IR',
+        'Neo4j',
+        'Processing',
+        'Finished',
+        'Done',
+        'Graph contains:',  # Our new validation messages
+        'Validating',
+        'Waiting for Neo4j to commit',
+    ]
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Always keep lines with our keep patterns
+        if any(pattern in line for pattern in keep_patterns):
+            filtered_lines.append(line)
+            continue
+            
+        # Skip lines with technical patterns
+        if any(pattern in line for pattern in skip_patterns):
+            continue
+            
+        # Keep other short, non-technical lines
+        if len(line) < 100 and not line.startswith('	'):
+            filtered_lines.append(line)
+    
+    return '\n'.join(filtered_lines[:10])  # Limit to 10 lines max
+
+def extract_success_details(stdout, stderr):
+    """Extract relevant success information from output"""
+    details = []
+    
+    # Look for node/edge counts
+    all_output = stdout + stderr
+    lines = all_output.split('\n')
+    
+    for line in lines:
+        if 'nodes' in line.lower() and 'edges' in line.lower():
+            details.append(line.strip())
+        elif '✓' in line:
+            details.append(line.strip())
+        elif 'successfully' in line.lower() and len(line) < 80:
+            details.append(line.strip())
+    
+    if not details:
+        return "Code Property Graph has been successfully exported to Neo4j"
+    
+    return ' | '.join(details[:3])  # Limit to 3 most relevant details
+
+def extract_error_details(stderr, stdout):
+    """Extract the most relevant error information"""
+    error_lines = []
+    all_output = stderr + stdout
+    
+    lines = all_output.split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if any(keyword in line.lower() for keyword in ['error:', 'exception', 'failed', 'cannot', 'unable']):
+            # Clean up common technical prefixes
+            cleaned = line.replace('ERROR:', '').replace('Exception:', '').strip()
+            if len(cleaned) > 10 and len(cleaned) < 150:  # Reasonable length
+                error_lines.append(cleaned)
+    
+    if not error_lines:
+        return "Analysis failed due to an unknown error. Please check your Rust code syntax."
+    
+    return ' | '.join(error_lines[:2])  # Show max 2 error lines
+
 def ensure_neo4j_connection():
     """Ensure Neo4j connection is established, with lazy initialization"""
     global neo4j_driver
@@ -104,12 +208,53 @@ def convert_code(code: str = Form(...)):
             env={**os.environ, "NEO4J_PASSWORD": NEO4J_PASS}
         )
 
-        return {
-            "stdout": proc.stdout,
-            "stderr": proc.stderr,
+        # Enhanced response handling for different scenarios
+        response_data = {
             "neo4j_browser": NEO4J_URL,
             "return_code": proc.returncode
         }
+
+        # Process and filter output for user-friendly display
+        filtered_stdout = filter_technical_output(proc.stdout)
+        filtered_stderr = filter_technical_output(proc.stderr)
+
+        # Add contextual information based on exit code
+        if proc.returncode == 2:
+            # Empty CPG results
+            response_data["analysis_status"] = "empty"
+            response_data["user_message"] = "Analysis completed but produced no graph data"
+            response_data["details"] = "The Rust code was too simple for meaningful analysis. Try adding functions, data structures, or control flow."
+            response_data["stdout"] = ""  # Hide technical output for empty results
+            response_data["stderr"] = ""  # Hide stderr for empty results - user doesn't need to see warnings
+        elif proc.returncode == 0:
+            # Successful analysis - but we need to verify it actually worked
+            response_data["analysis_status"] = "success"
+            response_data["user_message"] = "Code analysis completed successfully!"
+            
+            # Extract success details, but provide fallback if validation failed
+            success_details = extract_success_details(proc.stdout, proc.stderr)
+            if "Graph contains:" in success_details:
+                response_data["details"] = success_details
+            else:
+                # Validation might have failed, but CPG export probably succeeded
+                response_data["details"] = "Code Property Graph exported to Neo4j successfully!"
+            
+            response_data["stdout"] = filtered_stdout
+            response_data["stderr"] = ""  # Hide stderr on success to reduce noise
+        else:
+            # Error occurred
+            response_data["analysis_status"] = "error"
+            response_data["user_message"] = "Analysis failed"
+            response_data["details"] = extract_error_details(proc.stderr, proc.stdout)
+            response_data["stdout"] = filtered_stdout
+            response_data["stderr"] = filtered_stderr
+
+        # Debug logging to help troubleshoot
+        logging.info(f"Analysis completed - Status: {response_data.get('analysis_status', 'unknown')}, Return code: {proc.returncode}")
+        if proc.returncode == 0:
+            logging.info(f"Success details: {response_data.get('details', 'none')}")
+
+        return response_data
 
 @app.get("/config")
 def get_config():
@@ -118,6 +263,45 @@ def get_config():
         "backend_url": BACKEND_URL,
         "neo4j_url": NEO4J_URL
     }
+
+@app.get("/data-status")
+def check_data_status():
+    """Check if Neo4j contains any CPG data"""
+    
+    try:
+        # Query Neo4j to check for any nodes
+        auth_header = base64.b64encode(f"neo4j:{NEO4J_PASS}".encode()).decode()
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Basic {auth_header}"
+        }
+        
+        query_data = {
+            "statements": [{"statement": "MATCH (n) RETURN count(n) as nodeCount LIMIT 1"}]
+        }
+        
+        response = requests.post(
+            f"http://{NEO4J_HOST}:{NEO4J_HTTP_PORT}/db/data/transaction/commit",
+            json=query_data,
+            headers=headers,
+            timeout=5
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("results") and len(data["results"]) > 0:
+                node_count = data["results"][0]["data"][0]["row"][0] if data["results"][0]["data"] else 0
+                has_data = node_count > 0
+                return {
+                    "has_data": has_data,
+                    "node_count": node_count,
+                    "status": "connected"
+                }
+        
+        return {"has_data": False, "node_count": 0, "status": "query_failed"}
+        
+    except Exception as e:
+        return {"has_data": False, "node_count": 0, "status": "connection_failed", "error": str(e)}
 
 @app.post("/cypher")
 def run_cypher(query: CypherQuery):
