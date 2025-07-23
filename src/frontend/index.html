@@ -29,11 +29,14 @@
     <form id="codeForm">
       <!-- Code Examples Dropdown -->
       <div style="margin-bottom: 1rem;">
-        <label for="codeExamples" style="color: #ccc; font-size: 14px; margin-bottom: 0.5rem; display: block;">📂 Code Examples:</label>
+        <label for="codeExamples" style="color: #333; font-size: 14px; margin-bottom: 0.5rem; display: block;">📂 Code Examples:</label>
         <select id="codeExamples" style="padding: 0.5rem; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; width: 100%; font-size: 13px;">
           <option value="">Select an example...</option>
           <option value="datarace">🧵 Data Race Example (SendablePtr)</option>
           <option value="unsafecell">⚠️ UnsafeCell Example</option>
+          <option value="buffer_overflow">💥 Buffer Overflow Example (Merge Sort)</option>
+          <option value="cell_race">🔄 Cell Race Condition (RefOrInt)</option>
+          <option value="uninit_memory">🚫 Uninitialized Memory (AccReader)</option>
         </select>
       </div>
       
@@ -62,7 +65,7 @@
     
     <!-- Query Examples Dropdown -->
     <div style="margin-bottom: 1rem;">
-      <label for="queryExamples" style="color: #ccc; font-size: 14px; margin-bottom: 0.5rem; display: block;">📝 Query Examples:</label>
+      <label for="queryExamples" style="color: #333; font-size: 14px; margin-bottom: 0.5rem; display: block;">📝 Query Examples:</label>
       <select id="queryExamples" style="padding: 0.5rem; background: #333; color: #fff; border: 1px solid #555; border-radius: 4px; width: 100%; font-size: 13px;">
         <option value="all_edges">🔗 All Edge Types (DFG + EOG + AST + REFERS_TO + PDG + USAGE + SCOPE)</option>
         <option value="dfg_only">📊 Data Flow Graph (DFG) Only</option>

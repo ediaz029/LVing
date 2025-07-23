@@ -65,6 +65,151 @@ fn main() {
     for handle in handles {
         handle.join().unwrap();
     }
+}`,
+  buffer_overflow: `#![allow(unused)]
+use std::fmt::Debug;
+
+// Unsafe pointer arithmetic leading to buffer overflow
+unsafe fn get_by_index<T>(slice: &[T], index: isize) -> *const T {
+    slice.as_ptr().offset(index)
+}
+
+fn merge<T: Debug, F>(list: &mut [T], start: usize, mid: usize, end: usize, compare: &F) 
+where 
+    F: Fn(&T, &T) -> bool, 
+{ 
+    let mut left = Vec::with_capacity(mid - start + 1); 
+    let mut right = Vec::with_capacity(end - mid); 
+    unsafe { 
+        let mut start = start; 
+        while start <= mid { 
+            left.push(get_by_index(list, start as isize).read()); // potential overflow
+            start += 1; 
+        } 
+        while start <= end { 
+            right.push(get_by_index(list, start as isize).read()); // potential overflow
+            start += 1; 
+        } 
+    } 
+    
+    println!("Merge operation with potential buffer overflow completed");
+}
+
+fn main() {
+    let mut data = vec![3, 1, 4, 1, 5, 9, 2, 6];
+    merge(&mut data, 0, 3, 7, &|a, b| a < b);
+}`,
+  cell_race: `#![forbid(unsafe_code)] // The vulnerability exists despite no unsafe code
+
+// Minimal mocks for missing crates
+mod abox {
+    use std::sync::{Arc, Mutex};
+    pub struct AtomicBox<T>(Arc<Mutex<T>>);
+    impl<T: Clone> AtomicBox<T> {
+        pub fn new(t: &T) -> Self {
+            AtomicBox(Arc::new(Mutex::new(t.clone())))
+        }
+        pub fn get(&self) -> T {
+            let guard = self.0.lock().unwrap();
+            (*guard).clone()
+        }
+    }
+}
+
+mod crossbeam_utils {
+    pub mod thread {
+        pub fn scope<F, R>(f: F) -> R 
+        where F: FnOnce(&Scope) -> R {
+            f(&Scope)
+        }
+        pub struct Scope;
+        impl Scope {
+            pub fn spawn<F, T>(&self, f: F) -> std::thread::JoinHandle<T>
+            where F: FnOnce(&Scope) -> T, F: Send + 'static, T: Send + 'static {
+                std::thread::spawn(move || f(&Scope))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RefOrInt<'a> { Ref(&'a u64), Int(u64) }
+static SOME_INT: u64 = 123;
+
+fn main() {
+    let cell = std::cell::Cell::new(RefOrInt::Ref(&SOME_INT));
+    let atomic_box = abox::AtomicBox::new(&cell);
+
+    crossbeam_utils::thread::scope(|s| {
+        s.spawn(move |_| {
+            let smuggled_cell = atomic_box.get();
+            loop {
+                smuggled_cell.set(RefOrInt::Ref(&SOME_INT));
+                smuggled_cell.set(RefOrInt::Int(0xdeadbeef)); // race condition
+            }
+        });
+        
+        println!("Cell race condition example");
+    });
+}`,
+  uninit_memory: `use std::io::{self, Read, BufRead};
+use std::cmp;
+
+struct AccReader<R> {
+    source: R,
+    buf: Vec<u8>,
+    pos: usize,
+    inc: usize,
+}
+
+impl<R: Read> AccReader<R> {
+    fn new(source: R) -> Self {
+        AccReader {
+            source,
+            buf: Vec::new(),
+            pos: 0,
+            inc: 64,
+        }
+    }
+}
+
+impl<R: Read> BufRead for AccReader<R> { 
+    fn fill_buf(&mut self) -> io::Result<&[u8]> { 
+        let available = self.buf.len() - self.pos;
+        if available == 0 { 
+            let old_len = self.buf.len(); 
+            self.buf.reserve(self.inc); 
+            unsafe { 
+                self.buf.set_len(old_len + self.inc); // uninitialized memory exposure
+            } 
+
+            let (read, error) = match self.source.read(&mut self.buf[self.pos..]) { 
+                Ok(n) => (n, None), 
+                Err(e) => (0, Some(e)), 
+            }; 
+            unsafe { 
+                self.buf.set_len(old_len + read); 
+            } 
+
+            if let Some(e) = error { 
+                Err(e) 
+            } else { 
+                Ok(&self.buf[self.pos..]) 
+            } 
+        } else { 
+            Ok(&self.buf[self.pos..]) 
+        } 
+    } 
+
+    fn consume(&mut self, amt: usize) { 
+        self.pos = cmp::min(self.pos + amt, self.buf.len()); 
+    } 
+}
+
+fn main() {
+    let data = b"Hello, world!";
+    let mut reader = AccReader::new(&data[..]);
+    println!("Uninitialized memory access example");
 }`
 };
 
@@ -190,7 +335,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Code example titles
     const exampleTitles = {
       datarace: '🧵 Data Race Example (SendablePtr)',
-      unsafecell: '⚠️ UnsafeCell Example'
+      unsafecell: '⚠️ UnsafeCell Example',
+      buffer_overflow: '💥 Buffer Overflow Example (Merge Sort)',
+      cell_race: '🔄 Cell Race Condition (RefOrInt)',
+      uninit_memory: '🚫 Uninitialized Memory (AccReader)'
     };
     
     if (codeExamplesDropdown) {
@@ -274,7 +422,10 @@ document.addEventListener('DOMContentLoaded', () => {
     // Code example titles
     const exampleTitles = {
       datarace: '🧵 Data Race Example (SendablePtr)',
-      unsafecell: '⚠️ UnsafeCell Example'
+      unsafecell: '⚠️ UnsafeCell Example',
+      buffer_overflow: '💥 Buffer Overflow Example (Merge Sort)',
+      cell_race: '🔄 Cell Race Condition (RefOrInt)',
+      uninit_memory: '🚫 Uninitialized Memory (AccReader)'
     };
     
     if (codeExamplesDropdown) {
