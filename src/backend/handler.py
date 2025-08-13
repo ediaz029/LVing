@@ -24,7 +24,10 @@ NEO4J_URL = f"http://{NEO4J_BROWSER_HOST}:{NEO4J_HTTP_PORT}"
 BACKEND_HOST = os.getenv("BACKEND_HOST", "localhost")
 BACKEND_PORT = os.getenv("BACKEND_PORT", "8000")
 BACKEND_URL = f"http://{BACKEND_HOST}:{BACKEND_PORT}"
-SCRIPT = "./RVing.sh"
+import time
+import asyncio
+
+SCRIPT = "./LVing.sh"
 
 #ensuring NEO4J_PASSWORD is set
 NEO4J_PASS = os.getenv("NEO4J_PASSWORD")
@@ -191,7 +194,7 @@ def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
-        "service": "RVing Backend",
+        "service": "LVing Backend",
         "neo4j_url": NEO4J_URL
     }
 

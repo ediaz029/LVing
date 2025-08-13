@@ -900,15 +900,15 @@ function showNodeContextMenu(event, nodeId) {
   // Create menu items
   const menuItems = [
     {
-      label: `📈 Expand (${hiddenConnections.count}/${totalConnections} connections)`,
+      label: `📈 Expand from Database`,
       action: () => expandNode(nodeId),
-      enabled: hiddenConnections.count > 0,
-      debug: `Hidden: ${hiddenConnections.count}, Total: ${totalConnections}, Node: ${nodeId}`
+      enabled: true,  // Always enabled since we query database directly
+      debug: `Expanding node ${nodeId} by querying all relationship types from database`
     },
     {
       label: '👁️ Expand All Connected',
       action: () => expandAllConnected(nodeId),
-      enabled: totalConnections > 0
+      enabled: true
     },
     { separator: true },
     {
@@ -1113,55 +1113,109 @@ function getCurrentFilteredData() {
 }
 
 function expandNode(nodeId) {
-  console.log('[DEBUG] Attempting to expand node:', nodeId);
-  const hiddenConnections = getHiddenConnections(nodeId);
+  console.log('[DEBUG] Attempting to expand node via database query:', nodeId);
   
-  console.log('[DEBUG] Hidden connections found:', hiddenConnections);
-  
-  if (hiddenConnections.count === 0) {
-    console.log('[DEBUG] No hidden connections to expand for node:', nodeId);
-    showTemporaryMessage('No hidden connections to expand');
-    return;
-  }
-  
-  // Get current visible data (what's actually displayed)
-  const currentlyVisibleNodes = [];
-  const currentlyVisibleEdges = [];
-  
-  if (allNodes) {
-    const visibleNodeIds = allNodes.getIds();
-    visibleNodeIds.forEach(nodeId => {
-      currentlyVisibleNodes.push(allNodes.get(nodeId));
+  // Query the database directly for all connections of this node
+  expandNodeFromDatabase(nodeId);
+}
+
+async function expandNodeFromDatabase(nodeId) {
+  try {
+    // Cypher query to get all connections for a specific node
+    const expansionQuery = `
+      MATCH (start)
+      WHERE id(start) = ${nodeId}
+      OPTIONAL MATCH path1 = (start)-[r1:DFG]-(connected1)
+      OPTIONAL MATCH path2 = (start)-[r2:EOG]-(connected2)
+      OPTIONAL MATCH path3 = (start)-[r3:AST]-(connected3)
+      OPTIONAL MATCH path4 = (start)-[r4:REFERS_TO]-(connected4)
+      OPTIONAL MATCH path5 = (start)-[r5:PDG]-(connected5)
+      OPTIONAL MATCH path6 = (start)-[r6:USAGE]-(connected6)
+      OPTIONAL MATCH path7 = (start)-[r7:SCOPE]-(connected7)
+      WITH start, 
+           collect(DISTINCT path1) + collect(DISTINCT path2) + collect(DISTINCT path3) + 
+           collect(DISTINCT path4) + collect(DISTINCT path5) + collect(DISTINCT path6) + 
+           collect(DISTINCT path7) as allPaths
+      UNWIND allPaths as path
+      WITH path WHERE path IS NOT NULL
+      RETURN path
+    `;
+    
+    console.log('[DEBUG] Expansion query:', expansionQuery);
+    
+    const res = await fetch(getCypherEndpoint(), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: expansionQuery })
     });
+    
+    if (!res.ok) {
+      throw new Error(`Expansion query failed: ${res.status}`);
+    }
+    
+    const expansionData = await res.json();
+    console.log('[DEBUG] Expansion data received:', expansionData);
+    
+    if (!expansionData.nodes || expansionData.nodes.length === 0) {
+      showTemporaryMessage('No additional connections found in database');
+      return;
+    }
+    
+    // Get current visible data
+    const currentlyVisibleNodes = [];
+    const currentlyVisibleEdges = [];
+    
+    if (allNodes) {
+      const visibleNodeIds = allNodes.getIds();
+      visibleNodeIds.forEach(id => {
+        currentlyVisibleNodes.push(allNodes.get(id));
+      });
+    }
+    
+    if (allEdges) {
+      const visibleEdgeIds = allEdges.getIds();
+      visibleEdgeIds.forEach(id => {
+        currentlyVisibleEdges.push(allEdges.get(id));
+      });
+    }
+    
+    // Merge new data with existing visible data
+    const currentNodeIds = new Set(currentlyVisibleNodes.map(n => n.id));
+    const currentEdgeIds = new Set(currentlyVisibleEdges.map(e => e.id));
+    
+    const newNodes = expansionData.nodes.filter(node => !currentNodeIds.has(node.id));
+    const newEdges = (expansionData.edges || expansionData.relationships || [])
+      .filter(edge => !currentEdgeIds.has(edge.id));
+    
+    console.log('[DEBUG] Adding to graph:', { newNodes: newNodes.length, newEdges: newEdges.length });
+    
+    // Update the graph with merged data
+    const mergedData = {
+      nodes: [...currentlyVisibleNodes, ...newNodes],
+      edges: [...currentlyVisibleEdges, ...newEdges]
+    };
+    
+    // Update the original data store to include the new data
+    if (window.originalGraphData) {
+      const originalNodeIds = new Set(window.originalGraphData.nodes.map(n => n.id));
+      const originalEdgeIds = new Set(window.originalGraphData.edges.map(e => e.id));
+      
+      const nodesToAdd = newNodes.filter(node => !originalNodeIds.has(node.id));
+      const edgesToAdd = newEdges.filter(edge => !originalEdgeIds.has(edge.id));
+      
+      window.originalGraphData.nodes.push(...nodesToAdd);
+      window.originalGraphData.edges.push(...edgesToAdd);
+    }
+    
+    updateGraphDisplay(mergedData, document.getElementById('graphResult'));
+    
+    showTemporaryMessage(`Expanded node: +${newNodes.length} nodes, +${newEdges.length} edges from database`);
+    console.log('[DEBUG] Node expansion completed successfully');
+    
+  } catch (error) {
+    console.error('[DEBUG] Node expansion failed:', error);
+    showTemporaryMessage(`Expansion failed: ${error.message}`);
   }
-  
-  if (allEdges) {
-    const visibleEdgeIds = allEdges.getIds();
-    visibleEdgeIds.forEach(edgeId => {
-      currentlyVisibleEdges.push(allEdges.get(edgeId));
-    });
-  }
-  
-  // Add hidden nodes (avoid duplicates)
-  const currentNodeIds = new Set(currentlyVisibleNodes.map(n => n.id));
-  const newNodes = hiddenConnections.nodes.filter(node => !currentNodeIds.has(node.id));
-  
-  // Add hidden edges (avoid duplicates)
-  const currentEdgeIds = new Set(currentlyVisibleEdges.map(e => e.id));
-  const newEdges = hiddenConnections.edges.filter(edge => !currentEdgeIds.has(edge.id));
-  
-  console.log('[DEBUG] Will add:', { newNodes: newNodes.length, newEdges: newEdges.length });
-  
-  // Update the display
-  const expandedData = {
-    nodes: [...currentlyVisibleNodes, ...newNodes],
-    edges: [...currentlyVisibleEdges, ...newEdges]
-  };
-  
-  updateGraphDisplay(expandedData, document.getElementById('graphResult'));
-  
-  showTemporaryMessage(`Expanded node: +${newNodes.length} nodes, +${newEdges.length} edges`);
-  console.log('[DEBUG] Expanded node:', nodeId, 'added', newNodes.length, 'nodes and', newEdges.length, 'edges');
 }
 
 function expandAllConnected(nodeId) {

@@ -71,10 +71,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# copy pipeline script (RVing.sh) and API handler
-COPY RVing.sh handler.py ./
+# copy pipeline script (LVing.sh) and API handler
+COPY LVing.sh handler.py ./
 
-RUN chmod +x RVing.sh
+RUN chmod +x LVing.sh
 
 # exports cpg-neo4j console in PATH (correct path)
 ENV PATH="/opt/cpg/cpg-neo4j/build/install/cpg-neo4j/bin:${PATH}"

@@ -59,9 +59,9 @@ fi
 
 echo "» LLVM-IR file created successfully: $LL ($(wc -l < "$LL") lines)"
 
-# Debug: Show first few lines of LLVM-IR
-echo "» LLVM-IR preview:"
-head -5 "$LL" | sed 's/^/  /'
+## Debug: LLVM-IR preview suppressed
+# echo "» LLVM-IR preview:"
+# head -5 "$LL" | sed 's/^/  /'
 
 echo "» Exporting CPG to Neo4j @ $NEO4J_BOLT …"
 
@@ -72,8 +72,12 @@ echo "» Executing CPG translation and Neo4j export..."
 TEMP_OUT=$(mktemp)
 TEMP_ERR=$(mktemp)
 
-# Execute cpg-neo4j and capture output
-if command -v cpg-neo4j >/dev/null 2>&1; then
+# Execute cpg-neo4j using Gradle wrapper (since direct executable doesn't exist)
+if [ -f "/opt/cpg/gradlew" ]; then
+  echo "» Using Gradle wrapper to execute CPG analysis..."
+  cd /opt/cpg && ./gradlew :cpg-neo4j:run --args="--host=$NEO4J_HOST --port=$NEO4J_BOLT_PORT --user=$NEO4J_USER --password=$NEO4J_PASS $LL" > "$TEMP_OUT" 2> "$TEMP_ERR"
+  CPG_EXIT_CODE=$?
+elif command -v cpg-neo4j >/dev/null 2>&1; then
   cpg-neo4j \
     --host="$NEO4J_HOST" \
     --port="$NEO4J_BOLT_PORT" \
@@ -82,9 +86,11 @@ if command -v cpg-neo4j >/dev/null 2>&1; then
     "$LL" > "$TEMP_OUT" 2> "$TEMP_ERR"
   CPG_EXIT_CODE=$?
 else
-  echo "ERROR: cpg-neo4j not found in PATH" >&2
+  echo "ERROR: Neither gradlew nor cpg-neo4j found" >&2
   echo "Available executables:"
   find /opt/cpg -name "*neo4j*" -type f -executable 2>/dev/null || echo "No cpg-neo4j executable found"
+  echo "Gradle wrapper status:"
+  ls -la /opt/cpg/gradlew 2>/dev/null || echo "Gradle wrapper not found"
   exit 1
 fi
 
@@ -154,8 +160,7 @@ query_neo4j() {
       return 0
     fi
     
-    retry_count=$((retry_count + 1))
-    echo "» Query attempt $retry_count failed, retrying..." >&2
+  retry_count=$((retry_count + 1))
     sleep 2
   done
   
