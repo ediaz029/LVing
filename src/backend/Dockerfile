@@ -2,6 +2,7 @@
 # backend/Dockerfile - CORRECT CPG NEO4J CONSOLE
 ###############################################################################
 FROM rust:1.55.0-slim
+RUN rustup default nightly-2021-09-09
 
 # ── system deps + Java 21 (KEEP RUST 1.55.0) ──────────────────────────────────────────────────────────────
 RUN apt-get update && apt-get install -y --no-install-recommends \
