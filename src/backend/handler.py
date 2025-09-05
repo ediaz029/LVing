@@ -198,6 +198,15 @@ def health_check():
         "neo4j_url": NEO4J_URL
     }
 
+@app.get("/test")
+# TEST FOR CONNECTION CYPHER, IGNORE
+def test():
+    driver = ensure_neo4j_connection()
+    from ConnectionCypher import CONNECTION_CYPHER
+    with driver.session() as session:
+        result = session.run(CONNECTION_CYPHER)
+    return {}
+
 @app.post("/convert/")
 def convert_code(code: str = Form(...)):
     with tempfile.TemporaryDirectory() as tmp:
