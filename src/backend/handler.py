@@ -12,6 +12,14 @@ import logging
 import time
 import requests
 import base64
+import re
+
+VAR_DECLARATION_PATTERNS = [
+    r'let\s*(\s*(mut\s*(\w+))\s*:\s*[^=]+?\s*=\s*[^.;]+?);', # Typed Mutable
+    r'let\s*(\s*(mut\s*(\w+))\s*=\s*[^.;]+?);', # Mutable
+    r'let\s*(\s*((\w+))\s*:\s*[^=]+?\s*=\s*[^.;]+?);', # Typed Immutable
+    r'let\s*(\s*((\w+))\s*=\s*[^.;]+?);' # Immutable
+]
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -28,6 +36,8 @@ import time
 import asyncio
 
 SCRIPT = "./LVing.sh"
+ANNOTATION_MACRO_LOC = pathlib.Path(__file__).parent / "AnnotationMacro.rs"
+ANNOTATION_MACRO_LOC = ANNOTATION_MACRO_LOC.resolve()
 
 #ensuring NEO4J_PASSWORD is set
 NEO4J_PASS = os.getenv("NEO4J_PASSWORD")
@@ -198,9 +208,40 @@ def health_check():
         "neo4j_url": NEO4J_URL
     }
 
+@app.get("/test")
+# TEST FOR CONNECTION CYPHER, IGNORE
+def test():
+    driver = ensure_neo4j_connection()
+    from ConnectionCypher import CONNECTION_CYPHER
+    with driver.session() as session:
+        result = session.run(CONNECTION_CYPHER)
+    return {}
+
+def replace_declaration(match: re.Match):
+    # group(0) will return the whole string.
+    # group(1) is the mutable keyword, variable name, operator, and expression.
+    # group(2) is the variable name and mutable keyword.
+    # group(3) is the variable name ALONE.
+    return f"annotate!({match.group(1)}, \"{match.group(3)}\", line!());"
+
+def parse(code: str):
+    """
+    Updates code's header to include the link_llvm_intrinsics feature
+    and import the AnnotationMacro.rs. 
+
+    Automatically wraps annotate! around select variable declarations.
+    """
+    header = f"#![feature(link_llvm_intrinsics)]\ninclude!(\"{ANNOTATION_MACRO_LOC}\");\n"
+    code = header + code
+    for pattern_regex in VAR_DECLARATION_PATTERNS:
+        pattern = re.compile(pattern_regex, re.S)
+        code = pattern.sub(replace_declaration, code)
+    return code
+
 @app.post("/convert/")
 def convert_code(code: str = Form(...)):
     with tempfile.TemporaryDirectory() as tmp:
+        code = parse(code)
         src = pathlib.Path(tmp) / "snippet.rs"
         src.write_text(code)
 
