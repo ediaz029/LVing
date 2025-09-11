@@ -3,6 +3,8 @@ FastAPI back-end:
 POST /convert   (form field 'code')
 Returns JSON with stdout / stderr / link.
 """
+from ConnectionCypher import CONNECTION_CYPHER
+
 import subprocess, tempfile, pathlib, os, sys, requests, base64
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,10 +17,10 @@ import base64
 import re
 
 VAR_DECLARATION_PATTERNS = [
-    r'let\s*(\s*(mut\s*(\w+))\s*:\s*[^=]+?\s*=\s*[^.;]+?);', # Typed Mutable
-    r'let\s*(\s*(mut\s*(\w+))\s*=\s*[^.;]+?);', # Mutable
-    r'let\s*(\s*((\w+))\s*:\s*[^=]+?\s*=\s*[^.;]+?);', # Typed Immutable
-    r'let\s*(\s*((\w+))\s*=\s*[^.;]+?);' # Immutable
+    r'let\s*(\s*(mut\s*(\w+))\s*:\s*[^=]+?\s*=\s*(?!\s*[\(\{]).+?);', # Typed Mutable
+    r'let\s*(\s*(mut\s*(\w+))\s*=\s*(?!\s*[\(\{]).+?);', # Mutable
+    r'let\s*(\s*((\w+))\s*:\s*[^=]+?\s*=\s*(?!\s*[\(\{]).+?);', # Typed Immutable
+    r'let\s*(\s*((\w+))\s*=\s*(?!\s*[\(\{]).+?);' # Immutable
 ]
 
 # Set up logging
@@ -29,7 +31,7 @@ NEO4J_HOST = os.getenv("NEO4J_HOST", "neo4j")
 NEO4J_HTTP_PORT = os.getenv("NEO4J_HTTP_PORT", "7474")
 NEO4J_BROWSER_HOST = os.getenv("NEO4J_BROWSER_HOST", "localhost")
 NEO4J_URL = f"http://{NEO4J_BROWSER_HOST}:{NEO4J_HTTP_PORT}"
-BACKEND_HOST = os.getenv("BACKEND_HOST", "localhost")
+BACKEND_HOST = os.getenv("BACKEND_HOST", os.getenv("NEO4J_IP", "localhost"))
 BACKEND_PORT = os.getenv("BACKEND_PORT", "8000")
 BACKEND_URL = f"http://{BACKEND_HOST}:{BACKEND_PORT}"
 import time
@@ -130,7 +132,7 @@ def filter_technical_output(output):
             continue
             
         # Keep other short, non-technical lines
-        if len(line) < 100 and not line.startswith('	'):
+        if len(line) < 100 and not line.startswith('    '):
             filtered_lines.append(line)
     
     return '\n'.join(filtered_lines[:10])  # Limit to 10 lines max
@@ -188,35 +190,6 @@ def ensure_neo4j_connection():
             raise e
     return neo4j_driver
 
-app = FastAPI()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["POST", "GET"],
-    allow_headers=["*"],
-)
-
-class CypherQuery(BaseModel):
-    query: str
-
-@app.get("/")
-def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "healthy",
-        "service": "LVing Backend",
-        "neo4j_url": NEO4J_URL
-    }
-
-@app.get("/test")
-# TEST FOR CONNECTION CYPHER, IGNORE
-def test():
-    driver = ensure_neo4j_connection()
-    from ConnectionCypher import CONNECTION_CYPHER
-    with driver.session() as session:
-        result = session.run(CONNECTION_CYPHER)
-    return {}
-
 def replace_declaration(match: re.Match):
     # group(0) will return the whole string.
     # group(1) is the mutable keyword, variable name, operator, and expression.
@@ -237,6 +210,43 @@ def parse(code: str):
         pattern = re.compile(pattern_regex, re.S)
         code = pattern.sub(replace_declaration, code)
     return code
+
+def link_annotation_nodes() -> str:
+    try:
+        driver = ensure_neo4j_connection()
+    except Exception as e:
+        # It's not necessarily a CRITICAL error if we fail here.
+        # ..because we're assuming that our CPG is within Neo4J.
+        # The only thing the user would miss out on is the annotation links.
+        return "[FAILED] Annotation Link: Could not connect to Neo4J."
+
+    with driver.session() as session:
+        result = session.run(CONNECTION_CYPHER)
+        for n in result:
+            print (n.keys(), n.values())
+        return "[SUCCESS] Annotation Link success!"
+
+    return "[FAILED] Annotation Link: Could not properly run link cypher."
+
+app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["POST", "GET"],
+    allow_headers=["*"],
+)
+
+class CypherQuery(BaseModel):
+    query: str
+
+@app.get("/")
+def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "service": "LVing Backend",
+        "neo4j_url": NEO4J_URL
+    }
 
 @app.post("/convert/")
 def convert_code(code: str = Form(...)):
@@ -282,7 +292,7 @@ def convert_code(code: str = Form(...)):
             else:
                 # Validation might have failed, but CPG export probably succeeded
                 response_data["details"] = "Code Property Graph exported to Neo4j successfully!"
-            
+
             response_data["stdout"] = filtered_stdout
             response_data["stderr"] = ""  # Hide stderr on success to reduce noise
         else:
@@ -292,6 +302,12 @@ def convert_code(code: str = Form(...)):
             response_data["details"] = extract_error_details(proc.stderr, proc.stdout)
             response_data["stdout"] = filtered_stdout
             response_data["stderr"] = filtered_stderr
+
+        # Once we have the CPG within Neo4J, we need to link our annotation nodes 
+        # to the node its actually annotating.
+        # XXX: LVing.sh actually doesn't return 0..which is why I have this here.
+        link_details = link_annotation_nodes()
+        response_data["details"] += link_details
 
         # Debug logging to help troubleshoot
         logging.info(f"Analysis completed - Status: {response_data.get('analysis_status', 'unknown')}, Return code: {proc.returncode}")

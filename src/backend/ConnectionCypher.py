@@ -93,4 +93,8 @@ SET variable.annotation=annotation.name,
     variable.line_number = annotation.line_number
 
 MERGE (annotation)-[:ANNOTATE]->(variable)
+WITH annotation AS _
+
+MATCH (a: Annotation)
+RETURN count(DISTINCT a)
 """
