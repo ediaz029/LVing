@@ -41,7 +41,7 @@ macro_rules! annotate {
                 &$var as *const _ as *const u8,
                 concat!($annotation, "\0").as_ptr(),
                 file!().as_ptr(),
-                $line as i32,
+                ($line-2) as i32,
             );
         }
     }
