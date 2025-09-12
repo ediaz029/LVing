@@ -13,8 +13,9 @@ BASE=$(basename "$RUST_FILE" .rs)
 DIR=$(dirname  "$RUST_FILE")
 LL="$DIR/$BASE.ll"
 
-echo "» Compiling to LLVM-IR …"
-rustc --emit=llvm-ir -g -C debuginfo=2 -C opt-level=0 -o "$LL" "$RUST_FILE"
+# Now handled by backend/handler.py
+# echo "» Compiling to LLVM-IR …"
+# rustc --emit=llvm-ir -g -C debuginfo=2 -C opt-level=0 -o "$LL" "$RUST_FILE"
 
 # Use Docker service names for internal communication
 NEO4J_HOST=${NEO4J_HOST:-neo4j}

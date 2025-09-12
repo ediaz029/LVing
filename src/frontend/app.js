@@ -507,8 +507,41 @@ document.getElementById("codeForm").onsubmit = async (e) => {
       console.log('[DEBUG] Convert error response:', errorText);
       throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     }
+
+    const boundary = res.headers
+        .get("content-type")
+        .match(/boundary=(.*)$/)[1];
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let done = false;
+    while (!done) {
+        const { value, done: streamDone } = await reader.read();
+        if (value) buffer += decoder.decode(value, { stream: true });
+        done = streamDone;
+    }
+
+    const parts = buffer.split(`--${boundary}`).filter(p => p.trim() && p.trim() !== "--");
+
+    let json = null;
+    let irText = null;
+
+    // There's two types to handle here: JSON and plain text.
+    // The plain text is our IR stream. The res is our response_data.
+    // There will ALWAYS be a res. irText is only available if it was successful.
+    for (const part of parts) {
+      const [rawHeaders, body] = part.split("\r\n\r\n");
+      if (rawHeaders.includes("application/json")) {
+        json = JSON.parse(body.trim());
+      } else if (rawHeaders.includes("text/plain")) {
+        irText = body.trim();
+      }
+    }
+
+    console.log("JSON:", json);
+    console.log("LLVM IR:", irText);
     
-    const json = await res.json();
     console.log('[DEBUG] Convert response data:', json);
     
     let output = "";

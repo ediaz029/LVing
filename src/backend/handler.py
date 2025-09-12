@@ -7,7 +7,9 @@ from ConnectionCypher import CONNECTION_CYPHER
 
 import subprocess, tempfile, pathlib, os, sys, requests, base64
 from fastapi import FastAPI, Form, HTTPException
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.background import BackgroundTask
 from pydantic import BaseModel
 from neo4j import GraphDatabase
 import logging
@@ -15,6 +17,8 @@ import time
 import requests
 import base64
 import re
+import uuid
+import json
 
 # Matches keywords before let. Those are filtered out.
 COMMON_LET = r"(?P<keyword>\b(?:if|for|while|loop)\b(?:\s+)?)?\blet"
@@ -254,6 +258,23 @@ def link_annotation_nodes() -> str:
 
     return "[FAILED] Annotation Link: Could not properly run link cypher."
 
+def yield_llvm_multipart(data: dict, llvm_ir_path: str, boundary: str):
+    """
+    Generator for a split JSON and LLVM-IR stream. The boundary
+    is what divides the JSON and IR stream.
+    """
+    yield f"--{boundary}\r\n".encode()
+    yield b"Content-Type: application/json\r\n\r\n"
+    yield json.dumps(data).encode()
+    yield b"\r\n"
+    yield f"--{boundary}\r\n".encode()
+    yield b"Content-Type: text/plain\r\n\r\n"
+    with open(llvm_ir_path, "rb") as f:
+        for chunk in f:
+            yield chunk
+    yield b"\r\n"
+    yield f"--{boundary}--\r\n".encode()
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -276,71 +297,104 @@ def health_check():
 
 @app.post("/convert/")
 def convert_code(code: str = Form(...)):
-    with tempfile.TemporaryDirectory() as tmp:
-        code = parse(code)
-        src = pathlib.Path(tmp) / "snippet.rs"
-        src.write_text(code)
+    # Since the streamingresponse gets finished after the context manager, I manually call cleanup for tmp
+    # when I can be sure that the stream is finished and we're good to delete the IR file.
+    tmp = tempfile.TemporaryDirectory()
+    src = pathlib.Path(tmp.name) / "snippet.rs"
+    src.write_text(parse(code))
 
-        proc = subprocess.run(
-            [SCRIPT, str(src)],
-            text=True,
-            capture_output=True,
-            env={**os.environ, "NEO4J_PASSWORD": NEO4J_PASS}
-        )
+    ir_path = src.with_suffix(".ll")
 
-        # Enhanced response handling for different scenarios
-        response_data = {
-            "neo4j_browser": NEO4J_URL,
-            "return_code": proc.returncode
+    # We'll get the IR file from here. LVing.sh will just read it.
+    ir_proc = subprocess.run(
+        ["rustc", "--emit=llvm-ir", "-g", "-C", "debuginfo=2", "-C", "opt-level=0", "-o", str(ir_path), str(src)],
+        capture_output=True,
+        text=True
+    )
+
+    # Error on IR file creation:
+    if ir_proc.returncode != 0:
+        # We can still continue to send back normal json responses..at least for errors.
+        # Though unlike the errors below, this one is critical because we require the IR file to process anything.
+        return {
+            "analysis_status": "error",
+            "user_message": "Analysis failed",
+            "details": extract_error_details(ir_proc.stderr, ir_proc.stdout),
+            "stdout": filter_technical_output(ir_proc.stdout),
+            "stdout": filter_technical_output(ir_proc.stderr),
         }
 
-        # Process and filter output for user-friendly display
-        filtered_stdout = filter_technical_output(proc.stdout)
-        filtered_stderr = filter_technical_output(proc.stderr)
+    # Then, we continue to LVing.sh like normal:
+    proc = subprocess.run(
+        [SCRIPT, str(src)],
+        text=True,
+        capture_output=True,
+        env={**os.environ, "NEO4J_PASSWORD": NEO4J_PASS}
+    )
 
-        # Add contextual information based on exit code
-        if proc.returncode == 2:
-            # Empty CPG results
-            response_data["analysis_status"] = "empty"
-            response_data["user_message"] = "Analysis completed but produced no graph data"
-            response_data["details"] = "The Rust code was too simple for meaningful analysis. Try adding functions, data structures, or control flow."
-            response_data["stdout"] = ""  # Hide technical output for empty results
-            response_data["stderr"] = ""  # Hide stderr for empty results - user doesn't need to see warnings
-        elif proc.returncode == 0:
-            # Successful analysis - but we need to verify it actually worked
-            response_data["analysis_status"] = "success"
-            response_data["user_message"] = "Code analysis completed successfully!"
-            
-            # Extract success details, but provide fallback if validation failed
-            success_details = extract_success_details(proc.stdout, proc.stderr)
-            if "Graph contains:" in success_details:
-                response_data["details"] = success_details
-            else:
-                # Validation might have failed, but CPG export probably succeeded
-                response_data["details"] = "Code Property Graph exported to Neo4j successfully!"
+    # Enhanced response handling for different scenarios
+    response_data = {
+        "neo4j_browser": NEO4J_URL,
+        "return_code": proc.returncode
+    }
 
-            response_data["stdout"] = filtered_stdout
-            response_data["stderr"] = ""  # Hide stderr on success to reduce noise
+    # Process and filter output for user-friendly display
+    filtered_stdout = filter_technical_output(proc.stdout)
+    filtered_stderr = filter_technical_output(proc.stderr)
+
+    # Add contextual information based on exit code
+    if proc.returncode == 2:
+        # Empty CPG results
+        response_data["analysis_status"] = "empty"
+        response_data["user_message"] = "Analysis completed but produced no graph data"
+        response_data["details"] = "The Rust code was too simple for meaningful analysis. Try adding functions, data structures, or control flow."
+        response_data["stdout"] = ""  # Hide technical output for empty results
+        response_data["stderr"] = ""  # Hide stderr for empty results - user doesn't need to see warnings
+    elif proc.returncode == 0:
+        # Successful analysis - but we need to verify it actually worked
+        response_data["analysis_status"] = "success"
+        response_data["user_message"] = "Code analysis completed successfully!"
+      
+        # Extract success details, but provide fallback if validation failed
+        success_details = extract_success_details(proc.stdout, proc.stderr)
+        if "Graph contains:" in success_details:
+            response_data["details"] = success_details
         else:
-            # Error occurred
-            response_data["analysis_status"] = "error"
-            response_data["user_message"] = "Analysis failed"
-            response_data["details"] = extract_error_details(proc.stderr, proc.stdout)
-            response_data["stdout"] = filtered_stdout
-            response_data["stderr"] = filtered_stderr
+            # Validation might have failed, but CPG export probably succeeded
+            response_data["details"] = "Code Property Graph exported to Neo4j successfully!"
+        response_data["stdout"] = filtered_stdout
+        response_data["stderr"] = ""  # Hide stderr on success to reduce noise
+    else:
+        # Error occurred
+        response_data["analysis_status"] = "error"
+        response_data["user_message"] = "Analysis failed"
+        response_data["details"] = extract_error_details(proc.stderr, proc.stdout)
+        response_data["stdout"] = filtered_stdout
+        response_data["stderr"] = filtered_stderr
 
-        # Once we have the CPG within Neo4J, we need to link our annotation nodes 
-        # to the node its actually annotating.
-        # XXX: LVing.sh actually doesn't return 0..which is why I have this here.
-        link_details = link_annotation_nodes()
-        response_data["details"] += link_details
+    # Once we have the CPG within Neo4J, we need to link our annotation nodes 
+    # to the node its actually annotating.
+    # XXX: LVing.sh actually doesn't return 0..which is why I have this here.
+    link_details = link_annotation_nodes()
+    response_data["details"] += link_details
 
-        # Debug logging to help troubleshoot
-        logging.info(f"Analysis completed - Status: {response_data.get('analysis_status', 'unknown')}, Return code: {proc.returncode}")
-        if proc.returncode == 0:
-            logging.info(f"Success details: {response_data.get('details', 'none')}")
+    # Debug logging to help troubleshoot
+    logging.info(f"Analysis completed - Status: {response_data.get('analysis_status', 'unknown')}, Return code: {proc.returncode}")
+    if proc.returncode == 0:
+        logging.info(f"Success details: {response_data.get('details', 'none')}")
 
-        return response_data
+    # Now that we're at the end, we will stream the LLVM-IR down to the client in chunks.
+    # To do this AND continue to send our normal response_data, I use a multipart response.
+    # The JSON and IR is separated using a boundary:
+    boundary = f"BOUNDARY-{uuid.uuid4().hex}"
+
+    task = BackgroundTask(lambda: tmp.cleanup())
+    return StreamingResponse(
+        yield_llvm_multipart(response_data, str(ir_path), boundary),
+        media_type=f"multipart/mixed; boundary={boundary}",
+        background=task,
+    )
+    return response
 
 @app.get("/config")
 def get_config():
