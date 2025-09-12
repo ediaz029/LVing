@@ -215,8 +215,25 @@ def parse(code: str):
 
     Automatically wraps annotate! around select variable declarations.
     """
-    header = f"#![feature(link_llvm_intrinsics)]\ninclude!(\"{ANNOTATION_MACRO_LOC}\");\n"
-    code = header + code
+    splitCode = code.split("\n")
+    header = f"#![feature(link_llvm_intrinsics)]\n"
+
+    # include! has to come after all of the features.
+    # files may start with comments, so we'll put it after all
+    # the comments as well.
+    while not (len(splitCode) == 0):
+        line = splitCode[0]
+        if not line.startswith('/') and not line.startswith('#'):
+            break
+        header += splitCode.pop(0) + "\n"
+
+    # Now we can append our include
+    header += f"include!(\"{ANNOTATION_MACRO_LOC}\");\n"
+
+    # And the rest of our stack:
+    code = header + '\n'.join(splitCode)
+
+    # Next, we pattern match declarations to wrap around annotate!()
     for pattern_regex in VAR_DECLARATION_PATTERNS:
         pattern = re.compile(COMMON_LET + pattern_regex, re.S)
         code = pattern.sub(replace_declaration, code)
