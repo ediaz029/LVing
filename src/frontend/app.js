@@ -298,6 +298,8 @@ CALL {
 RETURN path1, path2, path3, path4`
 };
 
+let llvm_ir_text;
+
 // Initialize CodeMirror editor
 let codeEditor;
 let cypherEditor;
@@ -535,12 +537,12 @@ document.getElementById("codeForm").onsubmit = async (e) => {
       if (rawHeaders.includes("application/json")) {
         json = JSON.parse(body.trim());
       } else if (rawHeaders.includes("text/plain")) {
-        irText = body.trim();
+        llvm_ir_text = body.trim();
       }
     }
 
     console.log("JSON:", json);
-    console.log("LLVM IR:", irText);
+    console.log("LLVM IR:", llvm_ir_text);
     
     console.log('[DEBUG] Convert response data:', json);
     
@@ -653,6 +655,25 @@ function renderGraph(data, container) {
   setupGraphFilters();
 }
 
+function getCorrespondingLLVMCode(node) {
+    let split_info = node["title"].split("\n");
+    let arr = split_info.filter(s => s.startsWith("code:"));
+
+    // Not every node has the code property.
+    if (arr.length == 0) return;
+
+    // Remove 'code:' and the white space
+    let llvm_line_text = arr[0].substr(5).trimLeft()
+
+    // TODO: There's an interesting oddity here.
+    // directly doing llvm_ir_text.indexOf(llvm_line_text) will fail.
+    // there exists SOME cases where the !dbg's number at the end of code
+    // will not match what was sent from cpg->neo4j.
+    let line_number = (llvm_ir_text.slice(0, llvm_ir_text.indexOf(llvm_line_text)).match(/\n/g) || []).length + 1;
+    console.log(llvm_line_text);
+    console.log(line_number);
+}
+
 // Global variables for graph filtering
 let currentNetwork = null;
 let allNodes = null;
@@ -758,6 +779,8 @@ function updateGraphDisplay(data, container) {
     
     // Create custom tooltip
     showCustomTooltip(params.event, nodeData.title);
+
+    getCorrespondingLLVMCode(nodeData);
   });
 
   currentNetwork.on("hoverEdge", function (params) {
