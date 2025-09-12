@@ -250,8 +250,6 @@ def link_annotation_nodes() -> str:
 
     with driver.session() as session:
         result = session.run(CONNECTION_CYPHER)
-        for n in result:
-            print (n.keys(), n.values())
         return "[SUCCESS] Annotation Link success!"
 
     return "[FAILED] Annotation Link: Could not properly run link cypher."
