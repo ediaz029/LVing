@@ -3,6 +3,8 @@ FastAPI back-end:
 POST /convert   (form field 'code')
 Returns JSON with stdout / stderr / link.
 """
+from ConnectionCypher import CONNECTION_CYPHER
+
 import subprocess, tempfile, pathlib, os, sys, requests, base64
 from fastapi import FastAPI, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +14,17 @@ import logging
 import time
 import requests
 import base64
+import re
+
+# Matches keywords before let. Those are filtered out.
+COMMON_LET = r"(?P<keyword>\b(?:if|for|while|loop)\b(?:\s+)?)?\blet"
+
+VAR_DECLARATION_PATTERNS = [
+    r'(\s*(mut\s*(\w+))\s*:\s*[^=]+?\s*=\s*(?!\s*[\(\{]).+?);', # Typed Mutable
+    r'(\s*(mut\s*(\w+))\s*=\s*(?!\s*[\(\{]).+?);', # Mutable
+    r'(\s*((\w+))\s*:\s*[^=]+?\s*=\s*(?!\s*[\(\{]).+?);', # Typed Immutable
+    r'(\s*((\w+))\s*=\s*(?!\s*[\(\{]).+?);' # Immutable
+]
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -21,13 +34,15 @@ NEO4J_HOST = os.getenv("NEO4J_HOST", "neo4j")
 NEO4J_HTTP_PORT = os.getenv("NEO4J_HTTP_PORT", "7474")
 NEO4J_BROWSER_HOST = os.getenv("NEO4J_BROWSER_HOST", "localhost")
 NEO4J_URL = f"http://{NEO4J_BROWSER_HOST}:{NEO4J_HTTP_PORT}"
-BACKEND_HOST = os.getenv("BACKEND_HOST", "localhost")
+BACKEND_HOST = os.getenv("BACKEND_HOST", os.getenv("NEO4J_IP", "localhost"))
 BACKEND_PORT = os.getenv("BACKEND_PORT", "8000")
 BACKEND_URL = f"http://{BACKEND_HOST}:{BACKEND_PORT}"
 import time
 import asyncio
 
 SCRIPT = "./LVing.sh"
+ANNOTATION_MACRO_LOC = pathlib.Path(__file__).parent / "AnnotationMacro.rs"
+ANNOTATION_MACRO_LOC = ANNOTATION_MACRO_LOC.resolve()
 
 #ensuring NEO4J_PASSWORD is set
 NEO4J_PASS = os.getenv("NEO4J_PASSWORD")
@@ -120,7 +135,7 @@ def filter_technical_output(output):
             continue
             
         # Keep other short, non-technical lines
-        if len(line) < 100 and not line.startswith('	'):
+        if len(line) < 100 and not line.startswith('    '):
             filtered_lines.append(line)
     
     return '\n'.join(filtered_lines[:10])  # Limit to 10 lines max
@@ -178,6 +193,67 @@ def ensure_neo4j_connection():
             raise e
     return neo4j_driver
 
+def replace_declaration(match: re.Match):
+    # group(0) will return the whole string.
+    # group(1) is NOT None if keywords (if, for, loop, while) comes BEFORE let.
+    #   These declarations get filtered out.
+    if match.group(1) is not None:
+        return match.group(0)
+    # group(2) is the mutable keyword, variable name, operator, and expression.
+    # group(3) is the variable name and mutable keyword.
+    # group(4) is the variable name ALONE.
+    #   If the variable name is _, we follow the intention of it being used.
+    if match.group(4) == '_':
+        return match.group(0)
+    # return match.group(0)
+    return f"annotate!({match.group(2)}, \"{match.group(4)}\", line!());"
+
+def parse(code: str):
+    """
+    Updates code's header to include the link_llvm_intrinsics feature
+    and import the AnnotationMacro.rs. 
+
+    Automatically wraps annotate! around select variable declarations.
+    """
+    splitCode = code.split("\n")
+    header = f"#![feature(link_llvm_intrinsics)]\n"
+
+    # include! has to come after all of the features.
+    # files may start with comments, so we'll put it after all
+    # the comments as well.
+    while not (len(splitCode) == 0):
+        line = splitCode[0]
+        if not line.startswith('/') and not line.startswith('#'):
+            break
+        header += splitCode.pop(0) + "\n"
+
+    # Now we can append our include
+    header += f"include!(\"{ANNOTATION_MACRO_LOC}\");\n"
+
+    # And the rest of our stack:
+    code = header + '\n'.join(splitCode)
+
+    # Next, we pattern match declarations to wrap around annotate!()
+    for pattern_regex in VAR_DECLARATION_PATTERNS:
+        pattern = re.compile(COMMON_LET + pattern_regex, re.S)
+        code = pattern.sub(replace_declaration, code)
+    return code
+
+def link_annotation_nodes() -> str:
+    try:
+        driver = ensure_neo4j_connection()
+    except Exception as e:
+        # It's not necessarily a CRITICAL error if we fail here.
+        # ..because we're assuming that our CPG is within Neo4J.
+        # The only thing the user would miss out on is the annotation links.
+        return "[FAILED] Annotation Link: Could not connect to Neo4J."
+
+    with driver.session() as session:
+        result = session.run(CONNECTION_CYPHER)
+        return "[SUCCESS] Annotation Link success!"
+
+    return "[FAILED] Annotation Link: Could not properly run link cypher."
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -201,6 +277,7 @@ def health_check():
 @app.post("/convert/")
 def convert_code(code: str = Form(...)):
     with tempfile.TemporaryDirectory() as tmp:
+        code = parse(code)
         src = pathlib.Path(tmp) / "snippet.rs"
         src.write_text(code)
 
@@ -241,7 +318,7 @@ def convert_code(code: str = Form(...)):
             else:
                 # Validation might have failed, but CPG export probably succeeded
                 response_data["details"] = "Code Property Graph exported to Neo4j successfully!"
-            
+
             response_data["stdout"] = filtered_stdout
             response_data["stderr"] = ""  # Hide stderr on success to reduce noise
         else:
@@ -251,6 +328,12 @@ def convert_code(code: str = Form(...)):
             response_data["details"] = extract_error_details(proc.stderr, proc.stdout)
             response_data["stdout"] = filtered_stdout
             response_data["stderr"] = filtered_stderr
+
+        # Once we have the CPG within Neo4J, we need to link our annotation nodes 
+        # to the node its actually annotating.
+        # XXX: LVing.sh actually doesn't return 0..which is why I have this here.
+        link_details = link_annotation_nodes()
+        response_data["details"] += link_details
 
         # Debug logging to help troubleshoot
         logging.info(f"Analysis completed - Status: {response_data.get('analysis_status', 'unknown')}, Return code: {proc.returncode}")
