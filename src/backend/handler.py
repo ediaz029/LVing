@@ -16,11 +16,14 @@ import requests
 import base64
 import re
 
+# Matches keywords before let. Those are filtered out.
+COMMON_LET = r"(?P<keyword>\b(?:if|for|while|loop)\b(?:\s+)?)?\blet"
+
 VAR_DECLARATION_PATTERNS = [
-    r'let\s*(\s*(mut\s*(\w+))\s*:\s*[^=]+?\s*=\s*(?!\s*[\(\{]).+?);', # Typed Mutable
-    r'let\s*(\s*(mut\s*(\w+))\s*=\s*(?!\s*[\(\{]).+?);', # Mutable
-    r'let\s*(\s*((\w+))\s*:\s*[^=]+?\s*=\s*(?!\s*[\(\{]).+?);', # Typed Immutable
-    r'let\s*(\s*((\w+))\s*=\s*(?!\s*[\(\{]).+?);' # Immutable
+    r'(\s*(mut\s*(\w+))\s*:\s*[^=]+?\s*=\s*(?!\s*[\(\{]).+?);', # Typed Mutable
+    r'(\s*(mut\s*(\w+))\s*=\s*(?!\s*[\(\{]).+?);', # Mutable
+    r'(\s*((\w+))\s*:\s*[^=]+?\s*=\s*(?!\s*[\(\{]).+?);', # Typed Immutable
+    r'(\s*((\w+))\s*=\s*(?!\s*[\(\{]).+?);' # Immutable
 ]
 
 # Set up logging
@@ -192,10 +195,18 @@ def ensure_neo4j_connection():
 
 def replace_declaration(match: re.Match):
     # group(0) will return the whole string.
-    # group(1) is the mutable keyword, variable name, operator, and expression.
-    # group(2) is the variable name and mutable keyword.
-    # group(3) is the variable name ALONE.
-    return f"annotate!({match.group(1)}, \"{match.group(3)}\", line!());"
+    # group(1) is NOT None if keywords (if, for, loop, while) comes BEFORE let.
+    #   These declarations get filtered out.
+    if match.group(1) is not None:
+        return match.group(0)
+    # group(2) is the mutable keyword, variable name, operator, and expression.
+    # group(3) is the variable name and mutable keyword.
+    # group(4) is the variable name ALONE.
+    #   If the variable name is _, we follow the intention of it being used.
+    if match.group(4) == '_':
+        return match.group(0)
+    # return match.group(0)
+    return f"annotate!({match.group(2)}, \"{match.group(4)}\", line!());"
 
 def parse(code: str):
     """
@@ -207,7 +218,7 @@ def parse(code: str):
     header = f"#![feature(link_llvm_intrinsics)]\ninclude!(\"{ANNOTATION_MACRO_LOC}\");\n"
     code = header + code
     for pattern_regex in VAR_DECLARATION_PATTERNS:
-        pattern = re.compile(pattern_regex, re.S)
+        pattern = re.compile(COMMON_LET + pattern_regex, re.S)
         code = pattern.sub(replace_declaration, code)
     return code
 
