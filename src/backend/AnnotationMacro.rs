@@ -24,13 +24,13 @@ macro_rules! annotate {
 
     // Mutables
     (mut $var:ident = $value:expr, $annotation:literal, $line:expr) => {
-        let $var = $value;
+        let mut $var = $value;
         annotate!(@call_llvm_annotate $var, $annotation, $line);
     };
 
     // Mutables dec. with type:
     (mut $var:ident : $_:ty = $value:expr, $annotation:literal, $line:expr) => {
-        let $var = $value;
+        let mut $var = $value;
         annotate!(@call_llvm_annotate $var, $annotation, $line);
     };
 
