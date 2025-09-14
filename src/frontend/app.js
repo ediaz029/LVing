@@ -413,6 +413,9 @@ document.addEventListener('DOMContentLoaded', () => {
         readOnly: true,
     })
 
+    // example:
+    // llvmCodeEditor.markText({line: 0, ch: 0}, {line: 0, ch: 5}, {className: "styled-background"});
+
 
     // Match the Rust code's height.
     llvmCodeEditor.setSize("100%", "500px");
