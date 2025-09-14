@@ -303,6 +303,7 @@ let llvm_ir_text;
 // Initialize CodeMirror editor
 let codeEditor;
 let cypherEditor;
+let llvmCodeEditor;
 
 document.addEventListener('DOMContentLoaded', () => {
   try {
@@ -363,7 +364,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     }
-    
+
     // Use code button functionality
     if (useCodeBtn) {
       useCodeBtn.addEventListener('click', function() {
@@ -378,6 +379,43 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       });
     }
+
+    // LLVM-IR Code Editor:
+
+    // Lightweight regex for llvm syntax (since there isn't one for codemirror)
+    // tested (most of it) here: https://regex101.com/r/qV1Kkn/1
+    CodeMirror.defineSimpleMode("llvm-ir", {
+      start: [
+        {regex: /;.*$/, token: "comment"},
+        {regex: /!dbg/, token:"def"},
+        {regex: /!DI\w*/, token:"def"},
+        {regex: /!\d*/, token:"def"},
+        {regex: /%[a-zA-Z_][\w.]*/, token: "atom"},
+        {regex: /%[\d][\w.]*/, token: "atom"},
+        {regex: /@[a-zA-Z_][\w.]*/, token: "def"},
+        {regex: /\b(?:define|declare|private|constant|unnamed_addr|personality|nonnull|metadata|nocapture|zext|ugt|trunc|unreachable|undeftarget|distinct|align|to|ret|call|br|phi|load|store|add|mul|sub|icmp|fcmp|label|type|invoke|void|alloca|landingpad|extractvalue|getelementptr|inbounds|insertvalue|resume|hidden|internal|bitcast)\b/, token: "keyword"},
+        {regex: /\bi\d+\b/, token: "type"},
+        {regex: /\bfloatt?\b/, token: "type"},
+        {regex: /\w*:/, token: "property"},
+        {regex: /\d+/, token: "number"},
+        {regex: /".*?"/, token: "string"},
+      ]
+    });
+
+    llvmCodeEditor = CodeMirror(document.getElementById("llvmCodeEditor"), {
+        value: "",
+        mode: "llvm-ir",
+        theme: "monokai",
+        lineNumbers: true,
+        indentUnit: 2,
+        tabSize: 2,
+        lineWrapping: true,
+        readOnly: true,
+    })
+
+
+    // Match the Rust code's height.
+    llvmCodeEditor.setSize("100%", "500px");
 
     // Cypher CodeMirror setup
     cypherEditor = CodeMirror(document.getElementById("cypherEditor"), {
@@ -469,7 +507,7 @@ document.addEventListener('DOMContentLoaded', () => {
 document.getElementById("codeForm").onsubmit = async (e) => {
   e.preventDefault();
   
-  const submitButton = e.target.querySelector('button[type="submit"]');
+  const submitButton = document.querySelector("#codeFormButton");
   const resultElement = document.getElementById("result");
   
   console.log('[DEBUG] Starting code conversion');
@@ -543,6 +581,7 @@ document.getElementById("codeForm").onsubmit = async (e) => {
 
     console.log("JSON:", json);
     console.log("LLVM IR:", llvm_ir_text);
+    llvmCodeEditor.setValue(llvm_ir_text);
     
     console.log('[DEBUG] Convert response data:', json);
     
