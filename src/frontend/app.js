@@ -416,7 +416,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // example:
     // llvmCodeEditor.markText({line: 0, ch: 0}, {line: 0, ch: 5}, {className: "styled-background"});
 
-
     // Match the Rust code's height.
     llvmCodeEditor.setSize("100%", "500px");
 
@@ -697,7 +696,9 @@ function renderGraph(data, container) {
   setupGraphFilters();
 }
 
-function getCorrespondingLLVMCode(node) {
+let llvm_text_marker;
+let llvm_marker_clear_hover = true;
+function highlightCorrespondingLLVMCode(node) {
     let split_info = node["title"].split("\n");
     let arr = split_info.filter(s => s.startsWith("code:"));
 
@@ -712,8 +713,15 @@ function getCorrespondingLLVMCode(node) {
     // there exists SOME cases where the !dbg's number at the end of code
     // will not match what was sent from cpg->neo4j.
     let line_number = (llvm_ir_text.slice(0, llvm_ir_text.indexOf(llvm_line_text)).match(/\n/g) || []).length + 1;
+    llvm_text_marker = llvmCodeEditor.markText({line: line_number-2}, {line: line_number-1}, {className: "styled-background"});
+    llvmCodeEditor.scrollIntoView({line: line_number-2}, 100);
+
     console.log(llvm_line_text);
     console.log(line_number);
+}
+
+function removeLLVMHighlight() {
+    llvm_text_marker.clear();
 }
 
 // Global variables for graph filtering
@@ -822,7 +830,7 @@ function updateGraphDisplay(data, container) {
     // Create custom tooltip
     showCustomTooltip(params.event, nodeData.title);
 
-    getCorrespondingLLVMCode(nodeData);
+    highlightCorrespondingLLVMCode(nodeData);
   });
 
   currentNetwork.on("hoverEdge", function (params) {
@@ -856,6 +864,18 @@ function updateGraphDisplay(data, container) {
   // Hide context menu on canvas click
   currentNetwork.on("click", function (params) {
     hideNodeContextMenu();
+  });
+
+  currentNetwork.on("selectNode", function (params) {
+    // Holding the highlighted LLVM-IR.
+    llvm_marker_clear_hover = false;
+    console.log("SELECT");
+  });
+
+  // TODO: remember the previous held nodes and return back.
+  currentNetwork.on("deselectNode", function (params) {
+    llvm_marker_clear_hover = true;
+    if (llvm_text_marker) llvm_text_marker.clear()
   });
 
   console.log('[DEBUG] Network created with', enhancedNodes.length, 'nodes and', enhancedEdges.length, 'edges');
@@ -922,6 +942,7 @@ function showCustomTooltip(event, text) {
 }
 
 function hideCustomTooltip() {
+  if (llvm_text_marker && llvm_marker_clear_hover) removeLLVMHighlight();
   const existing = document.getElementById('custom-tooltip');
   if (existing) {
     existing.remove();
@@ -1439,7 +1460,7 @@ function focusOnNode(nodeId) {
         easingFunction: 'easeInOutQuad'
       }
     });
-    
+
     // Highlight the node temporarily
     currentNetwork.selectNodes([nodeId]);
     setTimeout(() => {
