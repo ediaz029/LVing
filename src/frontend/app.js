@@ -587,8 +587,12 @@ document.getElementById("codeForm").onsubmit = async (e) => {
           }
         }
 
-        console.log("JSON:", json);
-        console.log("LLVM IR:", llvm_ir_text);
+        // console.log("JSON:", json);
+        // console.log("LLVM IR:", llvm_ir_text);
+
+        parseLLVMText(llvm_ir_text);
+
+        // Set value of code editor:
         llvmCodeEditor.setValue(llvm_ir_text);
     } else {
         json = await res.json();
@@ -1877,3 +1881,24 @@ window.addEventListener('load', async () => {
     console.warn("[WARNING] Backend not accessible:", error.message);
   }
 });
+
+
+/*
+*
+* Resolving LLVM-IR Metadata
+* https://llvm.org/docs/LangRef.html#specialized-metadata-nodes
+*
+*/
+
+let metadataMap = new Map(); // !000 -> Object { identifier: string, data: {}}
+const metadataExp = new RegExp(/((!\d*) = !(\w*))|(\w*): ([^,)]*)/, "gm");
+
+function createMetadata(identifier) {
+    let metadata = new Object({
+        
+    });
+}
+
+function parseLLVMText(ir_text) {
+    console.log(ir_text.match(metadataExp))
+}
