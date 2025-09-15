@@ -550,40 +550,49 @@ document.getElementById("codeForm").onsubmit = async (e) => {
       throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     }
 
-    const boundary = res.headers
-        .get("content-type")
-        .match(/boundary=(.*)$/)[1];
+    console.log(res.headers)
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    let done = false;
-    while (!done) {
-        const { value, done: streamDone } = await reader.read();
-        if (value) buffer += decoder.decode(value, { stream: true });
-        done = streamDone;
-    }
+    const content_type = res.headers.get("content-type")
 
-    const parts = buffer.split(`--${boundary}`).filter(p => p.trim() && p.trim() !== "--");
-
+    // We'll still accept a pure json response:
+    // though this usually just means an error so we don't process a stream.
+    const boundary_match = content_type.match(/boundary=(.*)$/);
     let json = null;
-    let irText = null;
+    if (boundary_match) {
+        const boundary = boundary_match[1];
 
-    // There's two types to handle here: JSON and plain text.
-    // The plain text is our IR stream. The res is our response_data.
-    // There will ALWAYS be a res. irText is only available if it was successful.
-    for (const part of parts) {
-      const [rawHeaders, body] = part.split("\r\n\r\n");
-      if (rawHeaders.includes("application/json")) {
-        json = JSON.parse(body.trim());
-      } else if (rawHeaders.includes("text/plain")) {
-        llvm_ir_text = body.trim();
-      }
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let done = false;
+        while (!done) {
+            const { value, done: streamDone } = await reader.read();
+            if (value) buffer += decoder.decode(value, { stream: true });
+            done = streamDone;
+        }
+
+        const parts = buffer.split(`--${boundary}`).filter(p => p.trim() && p.trim() !== "--");
+
+        let irText = null;
+
+        // There's two types to handle here: JSON and plain text.
+        // The plain text is our IR stream. The res is our response_data.
+        // There will ALWAYS be a res. irText is only available if it was successful.
+        for (const part of parts) {
+          const [rawHeaders, body] = part.split("\r\n\r\n");
+          if (rawHeaders.includes("application/json")) {
+            json = JSON.parse(body.trim());
+          } else if (rawHeaders.includes("text/plain")) {
+            llvm_ir_text = body.trim();
+          }
+        }
+
+        console.log("JSON:", json);
+        console.log("LLVM IR:", llvm_ir_text);
+        llvmCodeEditor.setValue(llvm_ir_text);
+    } else {
+        json = await res.json();
     }
-
-    console.log("JSON:", json);
-    console.log("LLVM IR:", llvm_ir_text);
-    llvmCodeEditor.setValue(llvm_ir_text);
     
     console.log('[DEBUG] Convert response data:', json);
     
@@ -698,7 +707,7 @@ function renderGraph(data, container) {
 
 let llvm_text_marker;
 let llvm_marker_clear_hover = true;
-function highlightCorrespondingLLVMCode(node) {
+function highlightCorrespondingLLVMCode(node, onSelect=false) {
     let split_info = node["title"].split("\n");
     let arr = split_info.filter(s => s.startsWith("code:"));
 
@@ -713,19 +722,24 @@ function highlightCorrespondingLLVMCode(node) {
     // there exists SOME cases where the !dbg's number at the end of code
     // will not match what was sent from cpg->neo4j.
     let line_number = (llvm_ir_text.slice(0, llvm_ir_text.indexOf(llvm_line_text)).match(/\n/g) || []).length + 1;
-    llvm_text_marker = llvmCodeEditor.markText({line: line_number-2}, {line: line_number-1}, {className: "styled-background"});
+    let marker = llvmCodeEditor.markText({line: line_number-2}, {line: line_number-1}, {className: "styled-background"});
     llvmCodeEditor.scrollIntoView({line: line_number-2}, 100);
 
-    console.log(llvm_line_text);
-    console.log(line_number);
+    // If this was from a node selection (and not a hover), we'll return the marker.
+    if (onSelect) return marker;
+
+    // Otherwise, it's moved onto llvm_text_marker.
+    llvm_text_marker = marker;
 }
 
 function removeLLVMHighlight() {
-    llvm_text_marker.clear();
+    if (llvm_text_marker)
+        llvm_text_marker.clear();
 }
 
 // Global variables for graph filtering
 let currentNetwork = null;
+let node2Highlights = new Map();
 let allNodes = null;
 let allEdges = null;
 
@@ -867,15 +881,24 @@ function updateGraphDisplay(data, container) {
   });
 
   currentNetwork.on("selectNode", function (params) {
-    // Holding the highlighted LLVM-IR.
-    llvm_marker_clear_hover = false;
-    console.log("SELECT");
+    // Associate the node with the highlighted code. We'll clear the hover and use our own.
+    removeLLVMHighlight();
+    params.nodes.forEach(object => {
+        const node = allNodes.get(object);
+        let highlightedCode = highlightCorrespondingLLVMCode(node, true);
+        node2Highlights.set(node.id, highlightedCode);
+
+    });
   });
 
-  // TODO: remember the previous held nodes and return back.
   currentNetwork.on("deselectNode", function (params) {
-    llvm_marker_clear_hover = true;
-    if (llvm_text_marker) llvm_text_marker.clear()
+    params.previousSelection.nodes.forEach(object => {
+        let marker = node2Highlights.get(object.id);
+        if (marker) {
+            marker.clear();
+        }
+        node2Highlights.delete(object.id);
+    })
   });
 
   console.log('[DEBUG] Network created with', enhancedNodes.length, 'nodes and', enhancedEdges.length, 'edges');
@@ -942,7 +965,21 @@ function showCustomTooltip(event, text) {
 }
 
 function hideCustomTooltip() {
-  if (llvm_text_marker && llvm_marker_clear_hover) removeLLVMHighlight();
+  if (llvm_text_marker && llvm_marker_clear_hover) {
+    removeLLVMHighlight();
+
+    // We're also going to move our focus back to on what's highlighted (if any nodes are selected).
+    const iterator = node2Highlights.values();
+    let marker = iterator.next().value;
+
+    // Going to temporarily make peace with the fact that the marker here is an array.
+    // TODO: though this draws back to my incorrect regex (i think) from neo4j's code -> llvm ir
+    if (marker) {
+        // refocus on marker.lineNo
+        llvmCodeEditor.scrollIntoView({line: marker.lines[1].lineNo()}, 100);
+    }
+  }
+
   const existing = document.getElementById('custom-tooltip');
   if (existing) {
     existing.remove();
