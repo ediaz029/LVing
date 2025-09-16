@@ -587,13 +587,16 @@ document.getElementById("codeForm").onsubmit = async (e) => {
           }
         }
 
-        // console.log("JSON:", json);
-        // console.log("LLVM IR:", llvm_ir_text);
-
-        parseLLVMText(llvm_ir_text);
-
         // Set value of code editor:
         llvmCodeEditor.setValue(llvm_ir_text);
+        parseLLVMText(llvm_ir_text);
+
+        // For actual line -> line matches, we need to convert llvm_ir_text to an array.
+        llvm_ir_text = llvm_ir_text.split("\n");
+
+        // ..and then actually strip it
+        llvm_ir_text = llvm_ir_text.map((line) => line.trim());
+
     } else {
         json = await res.json();
     }
@@ -709,25 +712,94 @@ function renderGraph(data, container) {
   setupGraphFilters();
 }
 
+function stripWhitespace(str) {
+  return str.replace(/\s+/g, " ").trim();
+}
+
+function findMultilineInstruction(code) {
+    /// Attempts to match the (assumed) multi-lined code
+    /// with proper indices from the llvm_ir_text array.
+    /// Returns null if not found or [low, high].
+    const stripped_code = stripWhitespace(code);
+    const token = stripped_code.split(" ")[0];
+
+    for (let i = 0; i < llvm_ir_text.length; i++) {
+        if (!llvm_ir_text[i].includes(token)) continue;
+        let combined = "";
+        for (let j = i; j < llvm_ir_text.length; j++) {
+            combined += " " + llvm_ir_text[j];
+            if (stripWhitespace(combined).includes(stripped_code)) {
+                return [i, j];
+            }
+            if (combined.length > stripped_code.length * 3) break;
+        }
+    }
+    return null;
+}
+
+
+let titlePattern = new RegExp(/^(\w+):\s*(.*(?:\n\s+.*)*)$/, "gm");
 let llvm_text_marker;
 let llvm_marker_clear_hover = true;
+
 function highlightCorrespondingLLVMCode(node, onSelect=false) {
-    let split_info = node["title"].split("\n");
-    let arr = split_info.filter(s => s.startsWith("code:"));
+    // node["title"] (misnomer of the details of a node) is actually a string.
+    // The only thing I am wanting from it is the "code:"'s value.
+    const details = node["title"].matchAll(titlePattern);
+    let llvm_line_text = "";
+    let found_code = false;
 
-    // Not every node has the code property.
-    if (arr.length == 0) return;
+    for (const match of details) {
+        // 3 capture groups: Full line, key, value.
+        if (match[1] == "code") {
+            found_code = true;
+            llvm_line_text = match[2];
+        }
+    }
 
-    // Remove 'code:' and the white space
-    let llvm_line_text = arr[0].substr(5).trimLeft()
+    // Though, not all nodes will have associated code.
+    if (!found_code) {
+        return;
+    }
 
-    // TODO: There's an interesting oddity here.
-    // directly doing llvm_ir_text.indexOf(llvm_line_text) will fail.
-    // there exists SOME cases where the !dbg's number at the end of code
-    // will not match what was sent from cpg->neo4j.
-    let line_number = (llvm_ir_text.slice(0, llvm_ir_text.indexOf(llvm_line_text)).match(/\n/g) || []).length + 1;
-    let marker = llvmCodeEditor.markText({line: line_number-2}, {line: line_number-1}, {className: "styled-background"});
-    llvmCodeEditor.scrollIntoView({line: line_number-2}, 100);
+    // console.log(llvm_line_text);
+
+    // HACKFIX: So it turns out that CPG->Neo4j is renumbering SOME metadata's id (!dbg !<...>) without actually telling us anything.
+    // This is why directly doing .indexOf will fail here. In the future we could pry open the CPG to see why it's doing that.
+    // Until then, I try to match a line in the IR code using the ENTIRE Neo4j node's code property. 
+    // If that doesn't work, then it matches the line without the "!dbg !<...>".
+    // and if THAT doesn't work, we can't show much here and we'll ignore a highlight.
+    let line_number = llvm_ir_text.indexOf(llvm_line_text);
+    let lineRange = [0, 0];
+
+    // Attempting match without !dbg !<...>.
+    if (line_number < 0) {
+        llvm_line_text = llvm_line_text.split("!dbg")[0];
+        // console.log("attempting split ir code.");
+
+        // Before checking a span, check if this is just a !dbg mismatch.
+        line_number = llvm_ir_text.findIndex(str => str.includes(llvm_line_text));
+        // console.log(llvm_ir_text);
+        // console.log(llvm_line_text);
+        // console.log(line_number);
+    }
+
+    // It's ALSO possible that the code may span multiple lines which is what we also try to find here.
+    // This is our last resort (though, in a perfect world, that dbg issue is gone and my life is easier)
+    if (line_number < 0) {
+        lineRange = findMultilineInstruction(llvm_line_text);
+        // console.log("lineRange if multiline");
+    } else {
+        // We did end up finding our line number. To keep things consistent, everything is reduced down to just "lineRange".
+        lineRange = [line_number-1, line_number];
+    }
+
+    // Nothing found. No highlight.
+    if (!lineRange) return;
+    // console.log(lineRange);
+
+    let marker = llvmCodeEditor.markText({line: lineRange[0]}, {line: lineRange[1]}, {className: "styled-background"});
+    llvmCodeEditor.scrollIntoView({line: lineRange[0]}, 100);
 
     // If this was from a node selection (and not a hover), we'll return the marker.
     if (onSelect) return marker;
@@ -890,8 +962,9 @@ function updateGraphDisplay(data, container) {
     params.nodes.forEach(object => {
         const node = allNodes.get(object);
         let highlightedCode = highlightCorrespondingLLVMCode(node, true);
-        node2Highlights.set(node.id, highlightedCode);
-
+        if (highlightedCode) {
+            node2Highlights.set(node.id, highlightedCode);
+        }
     });
   });
 
@@ -1891,14 +1964,32 @@ window.addEventListener('load', async () => {
 */
 
 let metadataMap = new Map(); // !000 -> Object { identifier: string, data: {}}
-const metadataExp = new RegExp(/((!\d*) = !(\w*))|(\w*): ([^,)]*)/, "gm");
+const metadataPattern = new RegExp(/((!\d*) = !(\w*))\(([^.]*?)\)/, "gm");
+const metaPropertyPattern = new RegExp(/(\w*): ([^,)]*)/, "gm");
 
-function createMetadata(identifier) {
+function createMetadataObject(key, identifier, properties) {
     let metadata = new Object({
-        
+        key: key,
+        identifier: identifier,
+        data: {},
     });
+
+    // properties[0] is the entire line.
+    // odd indices are keys, even are values.
+    for (const p of properties) {
+        metadata.data[p[1]] = p[2];
+    }
 }
 
 function parseLLVMText(ir_text) {
-    console.log(ir_text.match(metadataExp))
+    const match = ir_text.matchAll(metadataPattern);
+    for (const m of match) {
+        const line = m[0];
+        const key = m[2]; // !000
+        const identifier = m[3]; // !DI...
+
+        // We match the line for {x}: {y} patterns.
+        const properties = line.matchAll(metaPropertyPattern);
+        createMetadataObject(key, identifier, properties.toArray());
+    }
 }
