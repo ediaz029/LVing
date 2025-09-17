@@ -1,4 +1,4 @@
-#![forbid(unsafe_code)] // The vulnerability exists despite no unsafe code
+// The vulnerability exists despite no unsafe code.
 
 // Minimal mocks for missing crates
 mod abox {
