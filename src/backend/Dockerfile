@@ -73,7 +73,7 @@ COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # copy pipeline script (LVing.sh) and API handler
-COPY LVing.sh handler.py ./
+COPY LVing.sh handler.py ConnectionCypher.py AnnotationMacro.rs ./
 
 RUN chmod +x LVing.sh
 
