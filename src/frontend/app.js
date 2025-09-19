@@ -739,9 +739,14 @@ function findMultilineInstruction(code) {
 
 
 let titlePattern = new RegExp(/^(\w+):\s*(.*(?:\n\s+.*)*)$/, "gm");
-let llvm_text_marker;
-let llvm_marker_clear_hover = true;
+let text_markers = null; // [rustMarker, llvmMarker]
 
+/*
+* Primary function to highlight code from the given Neo4j node data.
+*
+* Returns an array of the CodeMirror's marker [rustMarker, llvmMarker] WHEN onSelect=true
+*   otherwise, global text_markers is set.
+*/
 function highlightCorrespondingCode(node, onSelect=false) {
     // node["title"] (misnomer of the details of a node) is actually a string.
     // The only thing I am wanting from it is the "code:"'s value.
@@ -797,23 +802,25 @@ function highlightCorrespondingCode(node, onSelect=false) {
     // Nothing found. No highlight.
     if (!lineRange) return;
 
-    // Rust Highlight: (TODO: manage rust_marker)
+    // Rust Highlight:
     let rust_marker = resolveRustHighlight(llvm_line_text);
 
     // LLVM Highlight:
-    let marker = llvmCodeEditor.markText({line: lineRange[0]}, {line: lineRange[1]}, {className: "styled-background"});
+    let llvm_marker = llvmCodeEditor.markText({line: lineRange[0]}, {line: lineRange[1]}, {className: "styled-background"});
     llvmCodeEditor.scrollIntoView({line: lineRange[0]}, 100);
 
     // If this was from a node selection (and not a hover), we'll return the marker.
-    if (onSelect) return marker;
+    if (onSelect) return [rust_marker, llvm_marker];
 
-    // Otherwise, it's moved onto llvm_text_marker.
-    llvm_text_marker = marker;
+    // Otherwise, it's moved onto text_markers.
+    text_markers = [rust_marker, llvm_marker];
 }
 
-function removeLLVMHighlight() {
-    if (llvm_text_marker)
-        llvm_text_marker.clear();
+function removeCodeHighlights() {
+    for (marker of text_markers) {
+        if (marker) marker.clear();
+    }
+    text_markers = null;
 }
 
 // Global variables for graph filtering
@@ -961,21 +968,21 @@ function updateGraphDisplay(data, container) {
 
   currentNetwork.on("selectNode", function (params) {
     // Associate the node with the highlighted code. We'll clear the hover and use our own.
-    removeLLVMHighlight();
+    removeCodeHighlights();
     params.nodes.forEach(object => {
         const node = allNodes.get(object);
-        let highlightedCode = highlightCorrespondingCode(node, true);
-        if (highlightedCode) {
-            node2Highlights.set(node.id, highlightedCode);
+        let highlightedCodeMarkers = highlightCorrespondingCode(node, true);
+        if (highlightedCodeMarkers) {
+            node2Highlights.set(node.id, highlightedCodeMarkers);
         }
     });
   });
 
   currentNetwork.on("deselectNode", function (params) {
     params.previousSelection.nodes.forEach(object => {
-        let marker = node2Highlights.get(object.id);
-        if (marker) {
-            marker.clear();
+        let markers = node2Highlights.get(object.id);
+        for (marker of markers) {
+            if (marker) { marker.clear(); }
         }
         node2Highlights.delete(object.id);
     })
@@ -1045,18 +1052,20 @@ function showCustomTooltip(event, text) {
 }
 
 function hideCustomTooltip() {
-  if (llvm_text_marker && llvm_marker_clear_hover) {
-    removeLLVMHighlight();
+  if (text_markers) {
+    removeCodeHighlights();
 
     // We're also going to move our focus back to on what's highlighted (if any nodes are selected).
     const iterator = node2Highlights.values();
-    let marker = iterator.next().value;
+    let markers = iterator.next().value;
 
     // Going to temporarily make peace with the fact that the marker here is an array.
     // TODO: though this draws back to my incorrect regex (i think) from neo4j's code -> llvm ir
-    if (marker) {
+    if (markers) {
+        codeEditor.scrollIntoView({line: markers[0].lines[1].lineNo()}, 100);
+
         // refocus on marker.lineNo
-        llvmCodeEditor.scrollIntoView({line: marker.lines[1].lineNo()}, 100);
+        llvmCodeEditor.scrollIntoView({line: markers[1].lines[1].lineNo()}, 100);
     }
   }
 
