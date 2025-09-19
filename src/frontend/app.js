@@ -2030,7 +2030,11 @@ function resolveRustHighlight(instruction) {
     if (metadata.identifier != "DILocation") return;
 
     // Get file and line:
-    const [filename, lineNum] = resolveScopeAsFile(metadata);
+    const fileInfo = resolveScopeAsFile(metadata);
+    if (!fileInfo) return;
+
+    const filename = fileInfo[0];
+    const line = fileInfo[1];
 
     // TODO: filename also returns files from Rust's standard library.
     // Could open temporary tab in the rust codemirror to show this?
