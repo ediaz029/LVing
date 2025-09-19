@@ -302,6 +302,8 @@ let llvm_ir_text;
 
 // Initialize CodeMirror editor
 let codeEditor;
+let defaultRustBuffer;
+let rustBuffer;
 let cypherEditor;
 let llvmCodeEditor;
 
@@ -327,6 +329,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Set editor height
     codeEditor.setSize("100%", "500px");
+
+    // Secondary buffer so we can view code from standard lib without overwriting the current view.
+    rustBuffer = CodeMirror.Doc("", "rust");
 
     // Code examples dropdown functionality
     const codeExamplesDropdown = document.getElementById('codeExamples');
@@ -747,7 +752,7 @@ let text_markers = null; // [rustMarker, llvmMarker]
 * Returns an array of the CodeMirror's marker [rustMarker, llvmMarker] WHEN onSelect=true
 *   otherwise, global text_markers is set.
 */
-function highlightCorrespondingCode(node, onSelect=false) {
+async function highlightCorrespondingCode(node, onSelect=false) {
     // node["title"] (misnomer of the details of a node) is actually a string.
     // The only thing I am wanting from it is the "code:"'s value.
     const details = node["title"].matchAll(titlePattern);
@@ -803,7 +808,7 @@ function highlightCorrespondingCode(node, onSelect=false) {
     if (!lineRange) return;
 
     // Rust Highlight:
-    let rust_marker = resolveRustHighlight(llvm_line_text);
+    let rust_marker = await resolveRustHighlight(llvm_line_text);
 
     // LLVM Highlight:
     let llvm_marker = llvmCodeEditor.markText({line: lineRange[0]}, {line: lineRange[1]}, {className: "styled-background"});
@@ -821,6 +826,11 @@ function removeCodeHighlights() {
         if (marker) marker.clear();
     }
     text_markers = null;
+
+    // Go back to the default Rust code:
+    if (defaultRustBuffer) {
+        codeEditor.swapDoc(defaultRustBuffer);
+    }
 }
 
 // Global variables for graph filtering
@@ -1051,16 +1061,14 @@ function showCustomTooltip(event, text) {
   console.log('[DEBUG] Event object:', event);
 }
 
-function hideCustomTooltip() {
+async function hideCustomTooltip() {
   if (text_markers) {
     removeCodeHighlights();
 
     // We're also going to move our focus back to on what's highlighted (if any nodes are selected).
     const iterator = node2Highlights.values();
-    let markers = iterator.next().value;
+    let markers = await iterator.next().value;
 
-    // Going to temporarily make peace with the fact that the marker here is an array.
-    // TODO: though this draws back to my incorrect regex (i think) from neo4j's code -> llvm ir
     if (markers) {
         codeEditor.scrollIntoView({line: markers[0].lines[1].lineNo()}, 100);
 
@@ -2013,7 +2021,7 @@ function parseLLVMText(ir_text) {
 * Highlights the POTENTIAL equivalent Rust code from the Neo4j code property / LLVM-IR.
 * Returns the marker from codeEditor.markText.
 */
-function resolveRustHighlight(instruction) {
+async function resolveRustHighlight(instruction) {
     // "parse" instruction -> applicable metadataObject.
     if (!instruction.includes("!dbg")) return;
 
@@ -2027,22 +2035,63 @@ function resolveRustHighlight(instruction) {
 
     // Don't really care about anything other than DILocation for now.
     // At least for sync part. More identifier handles would be interesting later on.
-    if (metadata.identifier != "DILocation") return;
+    if (!["DILocation", "DILocalVariable"].includes(metadata.identifier)) return;
+    console.log(metadata);
 
-    // Get file and line:
-    const fileInfo = resolveScopeAsFile(metadata);
-    if (!fileInfo) return;
-
-    const filename = fileInfo[0];
-    const line = fileInfo[1];
-
-    // TODO: filename also returns files from Rust's standard library.
-    // Could open temporary tab in the rust codemirror to show this?
-    // just only concerned about our Rust input for now, hence me checking for just snippet.rs
-    if (filename.endsWith("snippet.rs\"")) {
-        codeEditor.scrollIntoView({line: lineNum}, 100);
-        return codeEditor.markText({line: lineNum-2}, {line: lineNum-1}, {className: "styled-background"});
+    // DILocalVariable has the file and line number as a property already, so we don't need to go through the scope to get it.
+    let fileinfo = null;
+    if (metadata.identifier == "DILocalVariable") {
+        fileInfo = [resolveDIFile(metadata.data.file), metadata.data.line];
+    } else {
+        // Get file and line:
+        fileInfo = resolveScopeAsFile(metadata);
     }
+
+    console.log("resolveRustHighlight: fileInfo=", fileInfo);
+
+    if (!fileInfo) return;
+    const filename = fileInfo[0];
+    const lineNum = fileInfo[1];
+
+    // Handle external Rust files:
+    // console.log(filename);
+    if (filename.startsWith("\"/rustc/")) {
+        const std_code = await fetchStandardLibraryCode(filename);
+        if (!std_code) { return; }
+        rustBuffer.setValue(std_code);
+        defaultRustBuffer = codeEditor.swapDoc(rustBuffer);
+    }
+
+    codeEditor.scrollIntoView({line: lineNum}, 100);
+    return codeEditor.markText({line: lineNum-2}, {line: lineNum-1}, {className: "styled-background"});
+}
+
+/*
+* Fetches the given filename straight from the Rust's GitHub to display on 
+* the secondary code buffer.
+*/
+async function fetchStandardLibraryCode(filename) {
+    // Split filename by /
+    const split = filename.split("rustc/");
+
+    // strip out the ending "
+    const file = split[1].substr(0, split[1].length-1);
+
+    try {
+        const response = await fetch("https://raw.githubusercontent.com/rust-lang/rust/" + file);
+        if (!response.ok) { return; }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let done = false;
+        while (!done) {
+            const { value, done: streamDone } = await reader.read();
+            if (value) buffer += decoder.decode(value, { stream: true });
+            done = streamDone;
+        }
+        return buffer.trim();
+    } catch { return; }
 }
 
 /*
@@ -2052,24 +2101,40 @@ function resolveRustHighlight(instruction) {
 function resolveScopeAsFile(metadata) {
     // Expecting a metadata object that has scope.
     const scope = metadata.data.scope;
-    if (!scope) return;
+    if (!scope) {
+        console.log("resolveScopeAsFile: no scope");
+        return;
+    }
 
     // Scope will always link to a lexical block which will have a file prop.
     const scopeObject = metadataMap.get(scope);
-    if (!scopeObject) return;
-    // console.log("resolveScopeAsFile: ", scopeObject);
+    if (!scopeObject) {
+        console.log("resolveScopeAsFile: scope key not tracked", scope);
+        return;
+    }
+
+    console.log("resolveScopeAsFile: scopeObject=", scopeObject);
+    console.log("resolveScopeAsFile: metadata=", metadata);
 
     const fileKey = scopeObject.data.file;
-    const lineNum = scopeObject.data.line;
-    if (!fileKey || !lineNum) return;
+    const lineNum = metadata.data.line;
+    if (!fileKey || !lineNum) {
+        console.log("resolveScopeAsFile: filekey or line is null");
+        console.log("resolveScopeAsFile: file=", file);
+        console.log("resolveScopeAsFile: lineNum", lineNum);
+        return;
+    }
 
+    return [resolveDIFile(fileKey), lineNum];
+}
+
+/*
+* Returns the filename as a string given a metadata key to DIFile:
+*/
+function resolveDIFile(key) {
     // DIFile:
     // filename, directory, checksumkind, checksum.
-    const file = metadataMap.get(fileKey);
+    const file = metadataMap.get(key);
     if (!file) return;
-
-    // TODO: filenames from the rust std lib have info that we dont really care for
-    // ex: "/rustc/97032a6dfacdd3548e4bff98c90a6b3875a14077/library/std/src/macros.rs
-    // though, we don't really do much for stdlib right now.
-    return [file.data.filename, lineNum];
+    return file.data.filename;
 }
