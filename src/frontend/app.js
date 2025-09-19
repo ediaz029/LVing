@@ -742,7 +742,7 @@ let titlePattern = new RegExp(/^(\w+):\s*(.*(?:\n\s+.*)*)$/, "gm");
 let llvm_text_marker;
 let llvm_marker_clear_hover = true;
 
-function highlightCorrespondingLLVMCode(node, onSelect=false) {
+function highlightCorrespondingCode(node, onSelect=false) {
     // node["title"] (misnomer of the details of a node) is actually a string.
     // The only thing I am wanting from it is the "code:"'s value.
     const details = node["title"].matchAll(titlePattern);
@@ -796,8 +796,11 @@ function highlightCorrespondingLLVMCode(node, onSelect=false) {
 
     // Nothing found. No highlight.
     if (!lineRange) return;
-    // console.log(lineRange);
 
+    // Rust Highlight: (TODO: manage rust_marker)
+    let rust_marker = resolveRustHighlight(llvm_line_text);
+
+    // LLVM Highlight:
     let marker = llvmCodeEditor.markText({line: lineRange[0]}, {line: lineRange[1]}, {className: "styled-background"});
     llvmCodeEditor.scrollIntoView({line: lineRange[0]}, 100);
 
@@ -920,7 +923,7 @@ function updateGraphDisplay(data, container) {
     // Create custom tooltip
     showCustomTooltip(params.event, nodeData.title);
 
-    highlightCorrespondingLLVMCode(nodeData);
+    highlightCorrespondingCode(nodeData);
   });
 
   currentNetwork.on("hoverEdge", function (params) {
@@ -961,7 +964,7 @@ function updateGraphDisplay(data, container) {
     removeLLVMHighlight();
     params.nodes.forEach(object => {
         const node = allNodes.get(object);
-        let highlightedCode = highlightCorrespondingLLVMCode(node, true);
+        let highlightedCode = highlightCorrespondingCode(node, true);
         if (highlightedCode) {
             node2Highlights.set(node.id, highlightedCode);
         }
@@ -1964,8 +1967,9 @@ window.addEventListener('load', async () => {
 */
 
 let metadataMap = new Map(); // !000 -> Object { identifier: string, data: {}}
-const metadataPattern = new RegExp(/((!\d*) = !(\w*))\(([^.]*?)\)/, "gm");
+const metadataPattern = new RegExp(/(!\d*) = (?:distinct )?!(\w*)\((.*?)\)/, "gm");
 const metaPropertyPattern = new RegExp(/(\w*): ([^,)]*)/, "gm");
+const singleDebugPattern = new RegExp(/(!dbg) (!\d*)/, "gm");
 
 function createMetadataObject(key, identifier, properties) {
     let metadata = new Object({
@@ -1979,17 +1983,80 @@ function createMetadataObject(key, identifier, properties) {
     for (const p of properties) {
         metadata.data[p[1]] = p[2];
     }
+    metadataMap.set(key, metadata);
 }
 
 function parseLLVMText(ir_text) {
     const match = ir_text.matchAll(metadataPattern);
     for (const m of match) {
         const line = m[0];
-        const key = m[2]; // !000
-        const identifier = m[3]; // !DI...
+        const key = m[1]; // !000
+        const identifier = m[2]; // !DI...
 
         // We match the line for {x}: {y} patterns.
         const properties = line.matchAll(metaPropertyPattern);
         createMetadataObject(key, identifier, properties.toArray());
     }
+}
+
+
+/*
+* Highlights the POTENTIAL equivalent Rust code from the Neo4j code property / LLVM-IR.
+* Returns the marker from codeEditor.markText.
+*/
+function resolveRustHighlight(instruction) {
+    // "parse" instruction -> applicable metadataObject.
+    if (!instruction.includes("!dbg")) return;
+
+    const regexMatch = instruction.matchAll(singleDebugPattern);
+    if (!regexMatch) return;
+    
+    const debug_key = regexMatch.toArray()[0][2];
+
+    const metadata = metadataMap.get(debug_key);
+    if (!metadata) return;
+
+    // Don't really care about anything other than DILocation for now.
+    // At least for sync part. More identifier handles would be interesting later on.
+    if (metadata.identifier != "DILocation") return;
+
+    // Get file and line:
+    const [filename, lineNum] = resolveScopeAsFile(metadata);
+
+    // TODO: filename also returns files from Rust's standard library.
+    // Could open temporary tab in the rust codemirror to show this?
+    // just only concerned about our Rust input for now, hence me checking for just snippet.rs
+    if (filename.endsWith("snippet.rs\"")) {
+        codeEditor.scrollIntoView({line: lineNum}, 100);
+        return codeEditor.markText({line: lineNum-2}, {line: lineNum-1}, {className: "styled-background"});
+    }
+}
+
+/*
+* Returns associated filename and line number given a metadata object.
+* -> [str, int]
+*/
+function resolveScopeAsFile(metadata) {
+    // Expecting a metadata object that has scope.
+    const scope = metadata.data.scope;
+    if (!scope) return;
+
+    // Scope will always link to a lexical block which will have a file prop.
+    const scopeObject = metadataMap.get(scope);
+    if (!scopeObject) return;
+    // console.log("resolveScopeAsFile: ", scopeObject);
+
+    const fileKey = scopeObject.data.file;
+    const lineNum = scopeObject.data.line;
+    if (!fileKey || !lineNum) return;
+
+    // DIFile:
+    // filename, directory, checksumkind, checksum.
+    const file = metadataMap.get(fileKey);
+    if (!file) return;
+
+    // TODO: filenames from the rust std lib have info that we dont really care for
+    // ex: "/rustc/97032a6dfacdd3548e4bff98c90a6b3875a14077/library/std/src/macros.rs
+    // though, we don't really do much for stdlib right now.
+    return [file.data.filename, lineNum];
 }
