@@ -1984,22 +1984,24 @@ window.addEventListener('load', async () => {
 */
 
 let metadataMap = new Map(); // !000 -> Object { identifier: string, data: {}}
-const metadataPattern = new RegExp(/(!\d*) = (?:distinct )?!(\w*)\((.*?)\)/, "gm");
-const metaPropertyPattern = new RegExp(/(\w*): ([^,)]*)/, "gm");
+const metadataPattern = new RegExp(/(!\d*) = (?:distinct )?!(\w*)\((.*?)\)$/, "gm");
+const metaPropertyPattern = new RegExp(/(\w+): (?:"([^"]*)"|([^,)]*))/, "gm");
 const singleDebugPattern = new RegExp(/(!dbg) (!\d*)/, "gm");
 
-function createMetadataObject(key, identifier, properties) {
+function createMetadataObject(key, identifier, matches) {
     let metadata = new Object({
         key: key,
         identifier: identifier,
         data: {},
     });
 
-    // properties[0] is the entire line.
-    // odd indices are keys, even are values.
-    for (const p of properties) {
-        metadata.data[p[1]] = p[2];
+    // properties is an array of matches (arrays)
+    // individual matches are array size 4
+    // group 2 is reserved for pure strings.
+    for (const match of matches) {
+        metadata.data[match[1]] = match[2] ? match[2] : match[3];
     }
+    console.log(metadata);
     metadataMap.set(key, metadata);
 }
 
@@ -2031,7 +2033,10 @@ async function resolveRustHighlight(instruction) {
     const debug_key = regexMatch.toArray()[0][2];
 
     const metadata = metadataMap.get(debug_key);
-    if (!metadata) return;
+    if (!metadata) {
+        console.log("metadata key not tracked", debug_key);
+        return;
+    }
 
     // Don't really care about anything other than DILocation for now.
     // At least for sync part. More identifier handles would be interesting later on.
@@ -2055,7 +2060,7 @@ async function resolveRustHighlight(instruction) {
 
     // Handle external Rust files:
     // console.log(filename);
-    if (filename.startsWith("\"/rustc/")) {
+    if (filename.startsWith("/rustc/")) {
         const std_code = await fetchStandardLibraryCode(filename);
         if (!std_code) { return; }
         rustBuffer.setValue(std_code);
@@ -2074,11 +2079,8 @@ async function fetchStandardLibraryCode(filename) {
     // Split filename by /
     const split = filename.split("rustc/");
 
-    // strip out the ending "
-    const file = split[1].substr(0, split[1].length-1);
-
     try {
-        const response = await fetch("https://raw.githubusercontent.com/rust-lang/rust/" + file);
+        const response = await fetch("https://raw.githubusercontent.com/rust-lang/rust/" + split[1]);
         if (!response.ok) { return; }
 
         const reader = response.body.getReader();
@@ -2091,7 +2093,7 @@ async function fetchStandardLibraryCode(filename) {
             done = streamDone;
         }
         return buffer.trim();
-    } catch { return; }
+    } catch (e) { console.error(e); return; }
 }
 
 /*
@@ -2120,7 +2122,7 @@ function resolveScopeAsFile(metadata) {
     const lineNum = metadata.data.line;
     if (!fileKey || !lineNum) {
         console.log("resolveScopeAsFile: filekey or line is null");
-        console.log("resolveScopeAsFile: file=", file);
+        console.log("resolveScopeAsFile: file=", fileKey);
         console.log("resolveScopeAsFile: lineNum", lineNum);
         return;
     }
@@ -2135,6 +2137,10 @@ function resolveDIFile(key) {
     // DIFile:
     // filename, directory, checksumkind, checksum.
     const file = metadataMap.get(key);
-    if (!file) return;
+    if (!file) {
+        console.log("resolveDIFile: file key not registered ", file);
+        return;
+    }
+    console.log("resolveDIFile:", file);
     return file.data.filename;
 }
