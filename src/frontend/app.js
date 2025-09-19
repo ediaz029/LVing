@@ -756,7 +756,7 @@ async function highlightCorrespondingCode(node, onSelect=false) {
     // node["title"] (misnomer of the details of a node) is actually a string.
     // The only thing I am wanting from it is the "code:"'s value.
     const details = node["title"].matchAll(titlePattern);
-    let llvm_line_text = "";
+    let llvm_line_text = ""; // NOTE: This is from the Neo4j node's "code" property.
     let found_code = false;
 
     for (const match of details) {
@@ -779,6 +779,7 @@ async function highlightCorrespondingCode(node, onSelect=false) {
     // Until then, I try to match a line in the IR code using the ENTIRE Neo4j node's code property. 
     // If that doesn't work, then it matches the line without the "!dbg !<...>".
     // and if THAT doesn't work, we can't show much here and we'll ignore a highlight.
+    // however, if this DOES work, the !dbg !<...> will follow the IR's version and not what went into the db.
     let line_number = llvm_ir_text.indexOf(llvm_line_text);
     let lineRange = [0, 0];
 
@@ -789,6 +790,16 @@ async function highlightCorrespondingCode(node, onSelect=false) {
 
         // Before checking a span, check if this is just a !dbg mismatch.
         line_number = llvm_ir_text.findIndex(str => str.includes(llvm_line_text));
+
+        // Before resolving the metadata and doing the Rust highlight, llvm_line_text becomes
+        // the line from the IR instead of what Neo4j told us.
+        if (line_number >= 0) {
+            // console.log("highlightCorrespondingCode: Using positive IR line:");
+            // console.log("\tOld: ", llvm_line_text);
+            llvm_line_text = llvm_ir_text[line_number];
+            // console.log("\tNew: ", llvm_line_text);
+        }
+
         // console.log(llvm_ir_text);
         // console.log(llvm_line_text);
         // console.log(line_number);
