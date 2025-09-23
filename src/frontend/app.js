@@ -644,6 +644,9 @@ document.getElementById("codeForm").onsubmit = async (e) => {
 const runCypherBtn = document.getElementById('runCypherBtn');
 if (runCypherBtn) {
   runCypherBtn.addEventListener('click', async () => {
+    await removeCodeHighlights();
+    await removeManagedHighlights();
+
     const query = cypherEditor.getValue();
     const graphDiv = document.getElementById('graphResult');
     
@@ -832,7 +835,8 @@ async function highlightCorrespondingCode(node, onSelect=false) {
     text_markers = [rust_marker, llvm_marker];
 }
 
-function removeCodeHighlights() {
+async function removeCodeHighlights() {
+    if (!text_markers) return;
     for (marker of text_markers) {
         if (marker) marker.clear();
     }
@@ -842,6 +846,18 @@ function removeCodeHighlights() {
     if (defaultRustBuffer) {
         codeEditor.swapDoc(defaultRustBuffer);
     }
+}
+
+async function removeManagedHighlights() {
+    node2Highlights.forEach((k, v) => { if (v) { v.forEach(m => {m.clear(); })}});
+    node2Highlights = new Map()
+}
+
+async function removeSingleManagedHighlight(objectId) {
+    const highlight_arr = await node2Highlights.get(objectId);
+    if (!highlight_arr) return;
+    highlight_arr.forEach(marker => { if(marker) marker.clear()});
+    node2Highlights.delete(objectId);
 }
 
 // Global variables for graph filtering
@@ -987,9 +1003,9 @@ function updateGraphDisplay(data, container) {
     hideNodeContextMenu();
   });
 
-  currentNetwork.on("selectNode", function (params) {
+  currentNetwork.on("selectNode", async function (params) {
     // Associate the node with the highlighted code. We'll clear the hover and use our own.
-    removeCodeHighlights();
+    await removeCodeHighlights();
     params.nodes.forEach(object => {
         const node = allNodes.get(object);
         let highlightedCodeMarkers = highlightCorrespondingCode(node, true);
@@ -999,13 +1015,9 @@ function updateGraphDisplay(data, container) {
     });
   });
 
-  currentNetwork.on("deselectNode", function (params) {
+  currentNetwork.on("deselectNode", async function (params) {
     params.previousSelection.nodes.forEach(object => {
-        let markers = node2Highlights.get(object.id);
-        for (marker of markers) {
-            if (marker) { marker.clear(); }
-        }
-        node2Highlights.delete(object.id);
+        removeSingleManagedHighlight(object.id);
     })
   });
 
@@ -1074,17 +1086,16 @@ function showCustomTooltip(event, text) {
 
 async function hideCustomTooltip() {
   if (text_markers) {
-    removeCodeHighlights();
+    await removeCodeHighlights();
 
     // We're also going to move our focus back to on what's highlighted (if any nodes are selected).
     const iterator = node2Highlights.values();
     let markers = await iterator.next().value;
 
+    // Refocus the editor on the selected markers:
     if (markers) {
-        codeEditor.scrollIntoView({line: markers[0].lines[1].lineNo()}, 100);
-
-        // refocus on marker.lineNo
-        llvmCodeEditor.scrollIntoView({line: markers[1].lines[1].lineNo()}, 100);
+        if (markers[0]) codeEditor.scrollIntoView({line: markers[0].lines[1].lineNo()}, 100);
+        if (markers[1]) llvmCodeEditor.scrollIntoView({line: markers[1].lines[1].lineNo()}, 100);
     }
   }
 
@@ -2052,7 +2063,7 @@ async function resolveRustHighlight(instruction) {
     // Don't really care about anything other than DILocation for now.
     // At least for sync part. More identifier handles would be interesting later on.
     if (!["DILocation", "DILocalVariable"].includes(metadata.identifier)) return;
-    console.log(metadata);
+    // console.log(metadata);
 
     // DILocalVariable has the file and line number as a property already, so we don't need to go through the scope to get it.
     let fileinfo = null;
