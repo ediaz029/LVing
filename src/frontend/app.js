@@ -849,7 +849,10 @@ async function removeCodeHighlights() {
 }
 
 async function removeManagedHighlights() {
-    node2Highlights.forEach((k, v) => { if (v) { v.forEach(m => {m.clear(); })}});
+    for (const [key, value] of node2Highlights.entries()) {
+        const highlights = await value;
+        highlights.forEach(h => { if(h) h.clear(); });
+    }
     node2Highlights = new Map()
 }
 

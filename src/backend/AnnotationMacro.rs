@@ -37,7 +37,7 @@ macro_rules! annotate {
     // Shared annotation logic:
     (@call_llvm_annotate $var:ident, $annotation:literal, $line:expr) => {
         unsafe {
-            llvm_ptr_annotation_p0(
+            ::llvm_ptr_annotation_p0(
                 &$var as *const _ as *const u8,
                 concat!($annotation, "\0").as_ptr(),
                 file!().as_ptr(),
