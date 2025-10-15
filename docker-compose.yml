@@ -14,12 +14,17 @@ services:
       - NEO4J_dbms_memory_transaction_total_max=2G
       # PERFORMANCE OPTIMIZATIONS FOR LARGE CPG IMPORTS
       - NEO4J_dbms_tx__log_rotation_retention__policy=1G size
-      - NEO4J_dbms_checkpoint_interval_time=30m
+      - NEO4J_dbms_checkpoint_interval_time=60m
       - NEO4J_dbms_default__listen__address=0.0.0.0
       - NEO4J_dbms_allow__upgrade=true
       # BULK IMPORT OPTIMIZATIONS
       - NEO4J_dbms_read__only=false
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
+      # PHASE 1: Write Performance Optimizations
+      - NEO4J_db_memory_transaction_max_size=10G
+      - NEO4J_db_tx__log_buffer_size=2097152
+      - NEO4J_server_bolt_thread__pool__max__size=400
+      - NEO4J_server_bolt_thread__pool__min__size=100
     volumes:
       # Use named volume for data (avoids permission issues)
       - neo4j_data:/data
@@ -52,7 +57,9 @@ services:
       - BACKEND_HOST=${BACKEND_HOST:-${NEO4J_IP}}
       - BACKEND_PORT=8000
       # JAVA MEMORY SETTINGS FOR CPG PROCESSING
-      - JAVA_OPTS=-Xmx3g -Xms1g
+      - JAVA_OPTS=-Xmx3g -Xms2g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+ParallelRefProcEnabled -XX:+UseStringDeduplication
+      # PHASE 1: Gradle Performance Optimization
+      - GRADLE_OPTS=-Xmx4g -XX:+UseG1GC -XX:ParallelGCThreads=4 -XX:+UseStringDeduplication
     depends_on:
       - neo4j
     ports:

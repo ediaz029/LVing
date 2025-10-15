@@ -73,9 +73,9 @@ COPY requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # copy pipeline script (LVing.sh) and API handler
-COPY LVing.sh handler.py ConnectionCypher.py AnnotationMacro.rs ./
+COPY LVing.sh handler.py ConnectionCypher.py AnnotationMacro.rs import_json_to_neo4j.py ./
 
-RUN chmod +x LVing.sh
+RUN chmod +x LVing.sh import_json_to_neo4j.py
 
 # exports cpg-neo4j console in PATH (correct path)
 ENV PATH="/opt/cpg/cpg-neo4j/build/install/cpg-neo4j/bin:${PATH}"

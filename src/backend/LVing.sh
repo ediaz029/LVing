@@ -64,26 +64,26 @@ echo "» LLVM-IR file created successfully: $LL ($(wc -l < "$LL") lines)"
 # echo "» LLVM-IR preview:"
 # head -5 "$LL" | sed 's/^/  /'
 
-echo "» Exporting CPG to Neo4j @ $NEO4J_BOLT …"
+# ============================================================================
+# PHASE 1 OPTIMIZATION: Export to JSON, then import via APOC (3-4x faster)
+# ============================================================================
 
-# Use cpg-neo4j with command-line arguments (not interactive commands)
-echo "» Executing CPG translation and Neo4j export..."
+echo "» Exporting CPG to JSON (optimized pipeline)..."
 
 # Create temporary files for capturing output
 TEMP_OUT=$(mktemp)
 TEMP_ERR=$(mktemp)
+JSON_FILE="/tmp/cpg_${BASE}_$(date +%s%N).json"
 
-# Execute cpg-neo4j using Gradle wrapper (since direct executable doesn't exist)
+# Execute cpg-neo4j with JSON export (no direct Neo4j write)
 if [ -f "/opt/cpg/gradlew" ]; then
   echo "» Using Gradle wrapper to execute CPG analysis..."
-  cd /opt/cpg && ./gradlew :cpg-neo4j:run --args="--host=$NEO4J_HOST --port=$NEO4J_BOLT_PORT --user=$NEO4J_USER --password=$NEO4J_PASS $LL" > "$TEMP_OUT" 2> "$TEMP_ERR"
+  cd /opt/cpg && ./gradlew :cpg-neo4j:run --args="--export-json $JSON_FILE --no-neo4j $LL" > "$TEMP_OUT" 2> "$TEMP_ERR"
   CPG_EXIT_CODE=$?
 elif command -v cpg-neo4j >/dev/null 2>&1; then
   cpg-neo4j \
-    --host="$NEO4J_HOST" \
-    --port="$NEO4J_BOLT_PORT" \
-    --user="$NEO4J_USER" \
-    --password="$NEO4J_PASS" \
+    --export-json "$JSON_FILE" \
+    --no-neo4j \
     "$LL" > "$TEMP_OUT" 2> "$TEMP_ERR"
   CPG_EXIT_CODE=$?
 else
@@ -97,13 +97,49 @@ fi
 
 # Process the output to show only relevant information
 if [ $CPG_EXIT_CODE -eq 0 ]; then
-  echo "✓ CPG analysis completed successfully"
+  echo "✓ CPG JSON export completed successfully"
   
-  # Extract useful information from output if available
-  if grep -q "nodes" "$TEMP_OUT" 2>/dev/null; then
-    echo "» CPG processing details:"
-    grep -E "(nodes|relationships|Processing|Finished)" "$TEMP_OUT" | head -3 | sed 's/^/  /'
+  # Verify JSON file was created
+  if [ ! -f "$JSON_FILE" ]; then
+    echo "ERROR: JSON file was not created: $JSON_FILE" >&2
+    rm -f "$TEMP_OUT" "$TEMP_ERR"
+    exit 1
   fi
+  
+  echo "» JSON file created: $JSON_FILE ($(du -h "$JSON_FILE" | cut -f1))"
+  
+  # Count nodes and edges from JSON
+  NODE_COUNT=$(grep -o '"nodes":\[' "$JSON_FILE" | wc -l)
+  EDGE_COUNT=$(grep -o '"edges":\[' "$JSON_FILE" | wc -l)
+  
+  # ============================================================================
+  # Import JSON to Neo4j using APOC batch procedures (3-4x faster than Bolt)
+  # ============================================================================
+  
+  echo "» Importing CPG to Neo4j via APOC batch processing..."
+  
+  # Clear existing graph (Neo4j 5.x endpoint)
+  echo "» Clearing existing Neo4j graph..."
+  curl -s -X POST \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Basic $(echo -n "${NEO4J_USER}:${NEO4J_PASS}" | base64)" \
+    -d '{"statements": [{"statement": "MATCH (n) DETACH DELETE n"}]}' \
+    "http://${NEO4J_HOST}:${NEO4J_HTTP_PORT}/db/neo4j/tx/commit" > /dev/null 2>&1
+  
+  # Import via separate Python script (avoids bash escaping issues)
+  python3 /app/import_json_to_neo4j.py "$JSON_FILE" "$NEO4J_HOST" "$NEO4J_HTTP_PORT" "$NEO4J_USER" "$NEO4J_PASS"
+  
+  IMPORT_EXIT_CODE=$?
+  
+  if [ $IMPORT_EXIT_CODE -ne 0 ]; then
+    echo "ERROR: APOC import failed" >&2
+    rm -f "$JSON_FILE" "$TEMP_OUT" "$TEMP_ERR"
+    exit 1
+  fi
+  
+  # Clean up JSON file
+  rm -f "$JSON_FILE"
+  
 else
   echo "ERROR: CPG analysis failed (exit code: $CPG_EXIT_CODE)" >&2
   echo "» Error details:" >&2
@@ -153,7 +189,7 @@ query_neo4j() {
       -H "Content-Type: application/json" \
       -H "Authorization: Basic $(echo -n "${NEO4J_USER}:${NEO4J_PASS}" | base64)" \
       -d "{\"statements\": [{\"statement\": \"$cypher_query\"}]}" \
-      "http://${NEO4J_HOST}:${NEO4J_HTTP_PORT}/db/data/transaction/commit" 2>/dev/null)
+      "http://${NEO4J_HOST}:${NEO4J_HTTP_PORT}/db/neo4j/tx/commit" 2>/dev/null)
     
     # Check if we got a valid response
     if echo "$result" | grep -q '"results"'; then

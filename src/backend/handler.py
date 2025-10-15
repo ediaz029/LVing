@@ -299,13 +299,24 @@ def health_check():
 def convert_code(code: str = Form(...)):
     # Since the streamingresponse gets finished after the context manager, I manually call cleanup for tmp
     # when I can be sure that the stream is finished and we're good to delete the IR file.
+    
+    # DEBUG: Log received code
+    logging.info(f"Received code (first 100 chars): {code[:100]}")
+    logging.info(f"Code length: {len(code)}")
+    
     tmp = tempfile.TemporaryDirectory()
     src = pathlib.Path(tmp.name) / "snippet.rs"
-    src.write_text(parse(code))
+    parsed_code = parse(code)
+    
+    # DEBUG: Log parsed code
+    logging.info(f"Parsed code (first 100 chars): {parsed_code[:100]}")
+    
+    src.write_text(parsed_code)
 
     ir_path = src.with_suffix(".ll")
 
     # We'll get the IR file from here. LVing.sh will just read it.
+    # Temporarily reverting to original flags to debug annotation macro issue
     ir_proc = subprocess.run(
         ["rustc", "--emit=llvm-ir", "-g", "-C", "debuginfo=2", "-C", "opt-level=0", "-o", str(ir_path), str(src)],
         capture_output=True,
@@ -421,7 +432,7 @@ def check_data_status():
         }
         
         response = requests.post(
-            f"http://{NEO4J_HOST}:{NEO4J_HTTP_PORT}/db/data/transaction/commit",
+            f"http://{NEO4J_HOST}:{NEO4J_HTTP_PORT}/db/neo4j/tx/commit",
             json=query_data,
             headers=headers,
             timeout=5
