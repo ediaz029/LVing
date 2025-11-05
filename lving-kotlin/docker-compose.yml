@@ -1,0 +1,40 @@
+services:
+  backend:
+    build:
+      context: .
+    ports:
+      - "8080:8080"
+    environment:
+      - NEO4J_HOST=neo4j
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - REDIS_HOST=redis
+    volumes:
+      - project_storage:/app/storage
+      - ./dataset:/app/dataset
+    depends_on:
+      - neo4j
+      - redis
+
+  neo4j:
+    image: neo4j:5.20.0
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+      - NEO4J_PLUGINS=["apoc"]
+    volumes:
+      - neo4j_data:/data
+
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  neo4j_data:
+  redis_data:
+  project_storage:
