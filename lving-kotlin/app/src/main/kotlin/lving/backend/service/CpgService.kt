@@ -14,6 +14,7 @@ import org.neo4j.driver.Values
 import java.io.File
 import java.util.concurrent.ExecutionException
 import kotlinx.serialization.Serializable
+import lving.backend.graph.persistGraph
 
 @Serializable
 data class GraphNode(
@@ -94,7 +95,7 @@ class CpgService {
             // Use CPG's persist extension function with Session context
             driver.session().use { session ->
                 with(session) {
-                    result.persist()
+                    result.persistGraph()
                 }
             }
             println("Graph persisted successfully")
