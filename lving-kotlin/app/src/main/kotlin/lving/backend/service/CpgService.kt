@@ -7,7 +7,6 @@ import de.fraunhofer.aisec.cpg.frontends.llvm.LLVMIRLanguage
 import de.fraunhofer.aisec.cpg.graph.Node
 import de.fraunhofer.aisec.cpg.graph.allChildren
 import de.fraunhofer.aisec.cpg.passes.DynamicInvokeResolver
-import de.fraunhofer.aisec.cpg.persistence.persist
 import org.neo4j.driver.AuthTokens
 import org.neo4j.driver.GraphDatabase
 import org.neo4j.driver.Values
@@ -95,22 +94,10 @@ class CpgService {
             // Use CPG's persist extension function with Session context
             driver.session().use { session ->
                 with(session) {
-                    result.persistGraph()
+                    result.persistGraph(projectId)
                 }
             }
             println("Graph persisted successfully")
-            
-            // Add projectId to all nodes after persistence using Cypher
-            println("Adding projectId to all nodes...")
-            driver.session().use { session ->
-                session.writeTransaction { tx ->
-                    tx.run(
-                        "MATCH (n) WHERE n.projectId IS NULL SET n.projectId = \$projectId",
-                        Values.parameters("projectId", projectId)
-                    ).consume()
-                }
-            }
-            
             println("Export to Neo4j successful for project $projectId")
         }
     }

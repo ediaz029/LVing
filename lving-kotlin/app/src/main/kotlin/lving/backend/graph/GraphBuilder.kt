@@ -46,6 +46,7 @@ import de.fraunhofer.aisec.cpg.persistence.properties
 import de.fraunhofer.aisec.cpg.persistence.schemaRelationships
 import org.neo4j.driver.Session
 import org.slf4j.LoggerFactory
+import java.util.WeakHashMap
 import kotlin.collections.iterator
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
@@ -73,7 +74,6 @@ const val edgeChunkSize = 10000
  */
 const val nodeChunkSize = 10000
 
-private var nodeIDMap = HashMap<Node, Uuid>()
 private val FILTERED_NODES = listOf<String>()
 private val FILTERED_EDGES = listOf("LANGUAGE")
 
@@ -97,16 +97,13 @@ private val FILTERED_EDGES = listOf("LANGUAGE")
  * - A [Session] context to perform persistence actions.
  */
 context(Session)
-fun TranslationResult.persistGraph() {
+fun TranslationResult.persistGraph(projectId: String) {
     val b = Benchmark(Persistable::class.java, "Persisting translation result")
 
     val astNodes = this@persistGraph.nodes
     val connected = astNodes.flatMap { it.connectedNodes }.toSet()
     val nodes = (astNodes + connected).distinct()
-
-    // Contrary to the actual name, Node.id is NOT UNIQUE.
-    nodes.forEach { nodeIDMap[it] = Uuid.random() }
-    nodes.persist()
+    val idMap = nodes.persist(projectId)
 
     log.info(
         "Persisting {} nodes: AST nodes ({}), other nodes ({})",
@@ -115,9 +112,9 @@ fun TranslationResult.persistGraph() {
         connected.size,
     )
 
-    val relationships = nodes.collectRelationships()
+    val relationships = nodes.collectRelationships(idMap)
     log.info("Persisting {} relationships", relationships.size)
-    relationships.persist()
+    relationships.persist(projectId)
 
     b.stop()
 }
@@ -142,13 +139,30 @@ fun TranslationResult.persistGraph() {
  * - A [Session] context to perform persistence actions.
  */
 context(Session)
-private fun List<Node>.persist() {
+private fun List<Node>.persist(projectId: String): Map<Node, String> {
+    // node.properties is immutable and we need the ID for relationships.
+    val idMap = WeakHashMap<Node, String>(this.size)
+
     this
         .filter { it::class::labels.get().any { l -> !FILTERED_NODES.contains(l) } }
         .chunked(nodeChunkSize).map { chunk ->
             val b = Benchmark(Persistable::class.java, "Persisting chunk of ${chunk.size} nodes")
             val params =
-                mapOf("props" to chunk.map { mapOf("labels" to it::class.labels) + it.properties() })
+                mapOf("props" to chunk.map {
+                    // it.properties (ext. from persistable.kt) is immutable
+                    // so unfortunately it has to be copied.
+                    val props = it.properties().toMutableMap()
+
+                    // Contrary to the actual name, Node.id is NOT UNIQUE.
+                    val id = Uuid.random().toString()
+                    props["id"] = id
+                    idMap[it] = id
+
+                    // While we're here, set projectId on properties to avoid doing an extra pass later.
+                    props["projectId"] = projectId
+
+                    mapOf("labels" to it::class.labels) + props
+                })
             this@Session.executeWrite { tx ->
                 tx.run(
                         """
@@ -163,6 +177,7 @@ private fun List<Node>.persist() {
             }
             b.stop()
         }
+    return idMap
 }
 
 /**
@@ -184,14 +199,14 @@ private fun List<Node>.persist() {
  * - Relationship properties and labels are mapped before using database utilities for creation.
  */
 context(Session)
-private fun Collection<Relationship>.persist() {
+private fun Collection<Relationship>.persist(projectId: String) {
     // Create an index for the "id" field of node, because we are "MATCH"ing on it in the edge
     // creation. We need to wait for this to be finished
     this@Session.executeWrite { tx ->
         tx.run("CREATE INDEX IF NOT EXISTS FOR (n:Node) ON (n.id)").consume()
     }
 
-    this.chunked(edgeChunkSize).map { chunk -> this@Session.createRelationships(chunk) }
+    this.chunked(edgeChunkSize).map { chunk -> this@Session.createRelationships(chunk, projectId) }
 }
 
 /**
@@ -202,17 +217,20 @@ private fun Collection<Relationship>.persist() {
  *   connect, while `type` defines the type of the relationship. Additional properties for the
  *   relationship can also be included in the map.
  */
-private fun Session.createRelationships(props: List<Relationship>) {
+private fun Session.createRelationships(props: List<Relationship>, projectId: String) {
     val b = Benchmark(Persistable::class.java, "Persisting chunk of ${props.size} relationships")
     val filteredProps = props
         .filter { it["type"] !in FILTERED_EDGES }
-    val params = mapOf("props" to filteredProps)
+    val params = mapOf(
+        "props" to filteredProps,
+        "projectId" to projectId,
+    )
     executeWrite { tx ->
         tx.run(
                 """
             UNWIND ${'$'}props AS map
-            MATCH (s:Node {id: map.startId})
-            MATCH (e:Node {id: map.endId})
+            MATCH (s:Node {id: map.startId, projectId: ${'$'}projectId})
+            MATCH (e:Node {id: map.endId, projectId: ${'$'}projectId})
             WITH s, e, map, apoc.map.removeKeys(map, ['startId', 'endId', 'type']) AS properties
             CALL apoc.create.relationship(s, map.type, properties, e) YIELD rel
             RETURN rel
@@ -247,7 +265,7 @@ val Persistable.connectedNodes: IdentitySet<Node>
         return nodes
     }
 
-private fun List<Node>.collectRelationships(): List<Relationship> {
+private fun List<Node>.collectRelationships(idMap: Map<Node, String>): List<Relationship> {
     val relationships = mutableListOf<Relationship>()
 
     for (node in this) {
@@ -257,8 +275,8 @@ private fun List<Node>.collectRelationships(): List<Relationship> {
                 relationships +=
                     value.map { edge ->
                         mapOf(
-                            "startId" to getNodeId(edge.start),
-                            "endId" to  getNodeId(edge.end),
+                            "startId" to idMap[edge.start],
+                            "endId" to idMap[edge.end],
                             "type" to entry.key,
                         ) + edge.properties()
                     }
@@ -266,24 +284,20 @@ private fun List<Node>.collectRelationships(): List<Relationship> {
                 relationships +=
                     value.filterIsInstance<Node>().map { end ->
                         mapOf(
-                            "startId" to getNodeId(node),
-                            "endId" to getNodeId(end),
+                            "startId" to idMap[node],
+                            "endId" to idMap[end],
                             "type" to entry.key,
                         )
                     }
             } else if (value is Node) {
                 relationships +=
                     mapOf(
-                        "startId" to getNodeId(node),
-                        "endId" to getNodeId(value),
+                        "startId" to idMap[node],
+                        "endId" to idMap[value],
                         "type" to entry.key,
                     )
             }
         }
     }
     return relationships
-}
-
-private fun getNodeId(n: Node): String {
-    return nodeIDMap.getOrPut(n) { Uuid.random() }.toString()
 }
