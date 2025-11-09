@@ -68,6 +68,8 @@ export function ProjectListPage() {
     queryFn: fetchProjects,
   });
 
+  projects?.sort((a, b) => b.createdAt - a.createdAt);
+
   const filteredProjects = projects?.filter((project) =>
     project.name.toLowerCase().includes(searchTerm.toLowerCase())
   );

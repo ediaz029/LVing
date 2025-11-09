@@ -21,6 +21,7 @@ import axios from "axios";
 import { CodeMirrorEditor } from "../components/CodeMirrorEditor";
 import { GraphVisualization } from "../components/GraphVisualization";
 import { CYPHER_EXAMPLES, QUERY_EXAMPLE_OPTIONS } from "../utils/queryExamples";
+import { CodeStrings } from "../utils/codeHighlight"
 
 interface Project {
   id: string;
@@ -182,6 +183,10 @@ export function ProjectDetailPage() {
     );
   }
 
+  // Set IR and Rust code values for CodeStrings
+  CodeStrings.RUST_CODE = sourceCode;
+  CodeStrings.IR_CODE = llvmIr;
+
   return (
     <Box bg="gray.50" minH="calc(100vh - 72px)">
       <VStack align="stretch" spacing={0}>
@@ -249,6 +254,7 @@ export function ProjectDetailPage() {
             ) : (
               <CodeMirrorEditor
                 value={sourceCode || "// No source code available"}
+                name="RUST_EDITOR"
                 readOnly={true}
                 language="rust"
                 height="500px"
@@ -274,6 +280,7 @@ export function ProjectDetailPage() {
             ) : (
               <CodeMirrorEditor
                 value={llvmIr || "// No LLVM-IR available"}
+                name="IR_EDITOR"
                 readOnly={true}
                 language="plain"
                 height="500px"

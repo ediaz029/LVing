@@ -26,6 +26,7 @@ import {
   filterGraphData,
   getNodeDisplayName,
 } from '../utils/graphUtils';
+import { highlightCorrespondingCode } from '../utils/codeHighlight'
 
 interface GraphVisualizationProps {
   data: {
@@ -149,6 +150,8 @@ export function GraphVisualization({ data, height = '100%' }: GraphVisualization
     // Enhance nodes with styling and tooltips
     const enhancedNodes = filteredData.nodes.map(node => ({
       id: node.id,
+      code: node.title.code,
+      rawLabels: node.labels,
       label: getNodeDisplayName(node), // Use actual node name instead of type
       title: createNodeTooltip(node),
       shape: getNodeShape(node),
@@ -251,6 +254,11 @@ export function GraphVisualization({ data, height = '100%' }: GraphVisualization
     // Add event listeners
     network.on('hoverNode', (params) => {
       console.log('[DEBUG] Hovering over node:', params.node);
+
+      const node = enhancedNodes.find(n => { return n.id === params.node.toString(); });
+      if (node != null && node.code && !node.rawLabels.includes("Literal")) {
+        highlightCorrespondingCode(node.id, node.code);
+      }
     });
 
     network.on('selectNode', (params) => {
