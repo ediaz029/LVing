@@ -25,6 +25,9 @@ import {
   createEdgeTooltip,
   filterGraphData,
   getNodeDisplayName,
+  showCustomTooltip,
+  hideCustomTooltip,
+  dragCustomTooltip,
 } from '../utils/graphUtils';
 import { highlightCorrespondingCode, removeHighlightNode } from '../utils/codeHighlight'
 
@@ -256,13 +259,24 @@ export function GraphVisualization({ data, height = '100%' }: GraphVisualization
       console.log('[DEBUG] Hovering over node:', params.node);
 
       const node = enhancedNodes.find(n => { return n.id === params.node.toString(); });
-      if (node != null && node.code && !node.rawLabels.includes("Literal")) {
+      if (!node) return;
+
+      // Tooltip:
+      showCustomTooltip(params, node.title);
+
+      // Code highlighting:
+      if (node.code && !node.rawLabels.includes("Literal")) {
         highlightCorrespondingCode(node.id, node.code);
       }
     });
 
     network.on('blurNode', (params) => {
+      hideCustomTooltip();
       removeHighlightNode(params.node.toString());
+    })
+
+    network.on('dragging', (params) => {
+      dragCustomTooltip(params);
     })
 
     network.on('selectNode', (params) => {

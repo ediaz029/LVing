@@ -276,3 +276,71 @@ export function filterGraphData(
   return { nodes: filteredNodes, edges: filteredEdges };
 }
 
+function moveTooltip(tooltip: HTMLElement, event: any) {
+  // Get mouse position from different possible event properties
+  let x = 0, y = 0;
+  
+  if (event.pointer && event.pointer.DOM) {
+    const canvas = event.event.target;
+    if (canvas) {
+      const bbox = canvas.getBoundingClientRect();
+      x = bbox.left + event.pointer.DOM.x + 10;
+      y = bbox.top + event.pointer.DOM.y + 10;
+    } else {
+      x = event.pointer.DOM.x + 10;
+      y = event.pointer.DOM.y - 10;
+    }
+  } else if (event.event && event.event.clientX) {
+    x = event.event.clientX + 10;
+    y = event.event.clientY - 10;
+  } else {
+    x = event.clientX + 10;
+    y = event.clientY - 10;
+  }
+  
+
+  x += window.scrollX;
+  y += window.scrollY;
+  tooltip.style.left = x + 'px';
+  tooltip.style.top = y + 'px';
+}
+
+export function showCustomTooltip(event: any, text: string) {
+  hideCustomTooltip(); // Remove any existing tooltip
+  
+  const tooltip = document.createElement('div');
+  tooltip.id = 'custom-tooltip';
+  tooltip.style.cssText = `
+    position: absolute;
+    background: rgba(0, 0, 0, 0.8);
+    color: white;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: monospace;
+    white-space: pre-line;
+    z-index: 1000;
+    pointer-events: none;
+    max-width: 300px;
+    border: 1px solid #444;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+  `;
+  
+  tooltip.textContent = text;
+  document.body.appendChild(tooltip);
+  moveTooltip(tooltip, event);
+}
+
+export function hideCustomTooltip() {
+  const existing = document.getElementById('custom-tooltip');
+  if (existing) {
+    existing.remove();
+    console.log('[DEBUG] Custom tooltip removed');
+  }
+}
+
+export function dragCustomTooltip(event : any) {
+  const existing = document.getElementById('custom-tooltip');
+  if (!existing) return;
+  moveTooltip(existing, event);
+}
