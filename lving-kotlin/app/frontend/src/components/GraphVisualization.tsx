@@ -26,7 +26,7 @@ import {
   filterGraphData,
   getNodeDisplayName,
 } from '../utils/graphUtils';
-import { highlightCorrespondingCode } from '../utils/codeHighlight'
+import { highlightCorrespondingCode, removeHighlightNode } from '../utils/codeHighlight'
 
 interface GraphVisualizationProps {
   data: {
@@ -260,6 +260,10 @@ export function GraphVisualization({ data, height = '100%' }: GraphVisualization
         highlightCorrespondingCode(node.id, node.code);
       }
     });
+
+    network.on('blurNode', (params) => {
+      removeHighlightNode(params.node.toString());
+    })
 
     network.on('selectNode', (params) => {
       console.log('[DEBUG] Selected node:', params.nodes[0]);

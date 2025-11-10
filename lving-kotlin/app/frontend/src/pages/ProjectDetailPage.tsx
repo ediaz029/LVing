@@ -22,6 +22,7 @@ import { CodeMirrorEditor } from "../components/CodeMirrorEditor";
 import { GraphVisualization } from "../components/GraphVisualization";
 import { CYPHER_EXAMPLES, QUERY_EXAMPLE_OPTIONS } from "../utils/queryExamples";
 import { CodeStrings } from "../utils/codeHighlight"
+import { parseMetadata } from "../utils/metadata.ts"
 
 interface Project {
   id: string;
@@ -107,6 +108,7 @@ export function ProjectDetailPage() {
     queryKey: ["sourceCode", id],
     queryFn: async () => {
       const response = await axios.get(`/projects/${id}/source`);
+      CodeStrings.IR_CODE = response.data;
       return response.data;
     },
     enabled: !!id,
@@ -116,6 +118,8 @@ export function ProjectDetailPage() {
     queryKey: ["llvmIr", id],
     queryFn: async () => {
       const response = await axios.get(`/projects/${id}/llvm-ir`);
+      CodeStrings.RUST_CODE = response.data;
+      parseMetadata(response.data);
       return response.data;
     },
     enabled: !!id && !!project?.llvmIrPath,

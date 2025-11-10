@@ -8,7 +8,7 @@ import { rust } from '@codemirror/lang-rust';
 const registry = new Map<String, EditorView>();
 
 // https://codemirror.net/docs/migration/#marked-text
-const addMarks = StateEffect.define<{from: number, to: number, id: number}>();
+const addMarks = StateEffect.define<{from: number, to: number, id: string}>();
 const removeMarks = StateEffect.define<{id: string}>();
 
 const markField = StateField.define({
@@ -66,7 +66,6 @@ const markField = StateField.define({
 * Highlights lines on view: from <= n <= to given a nodeId.
 */
 export function highlight(view: EditorView, id: string, from: number, to: number) {
-  to += 1;
   view.dispatch({ effects: addMarks.of({ from, to, id })});
 }
 
@@ -81,6 +80,11 @@ export function getEditorView(name: String): EditorView | undefined {
   return registry.get(name);
 }
 
+export function scrollIntoView(view: EditorView, line: number) {
+  const target = view.state.doc.line(line);
+  view.dispatch({ effects: EditorView.scrollIntoView(target.from, { y: "center"})})
+}
+
 interface CodeMirrorEditorProps {
   value: string;
   name: string;
@@ -92,7 +96,7 @@ interface CodeMirrorEditorProps {
 
 export function CodeMirrorEditor({
   value,
-  name,
+  name = "",
   readOnly = false,
   onChange,
   language = 'rust',
