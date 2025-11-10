@@ -50,6 +50,7 @@ import java.util.WeakHashMap
 import kotlin.collections.iterator
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
+import lving.backend.graph.Demangle
 
 private typealias Relationship = Map<String, Any?>
 private val log = LoggerFactory.getLogger("GraphBuilder")
@@ -74,7 +75,7 @@ const val edgeChunkSize = 10000
  */
 const val nodeChunkSize = 10000
 
-private val FILTERED_NODES = listOf<String>()
+private val FILTERED_NODES = listOf("UnknownType")
 private val FILTERED_EDGES = listOf("LANGUAGE")
 
 /**
@@ -158,10 +159,23 @@ private fun List<Node>.persist(projectId: String): Map<Node, String> {
                     props["id"] = id
                     idMap[it] = id
 
+                    // XXX: This is specifically for the usability test.
+                    // the most rational thing is to do this in a proper pass.
+                    val name = Demangle.demangle(props.getOrDefault("name", "") as String);
+                    props["name"] = name;
+                    props["fullName"] = name;
+                    props["localName"] = name;
+
+                    // tag main:
+                    var extraLabels = setOf<String>()
+                    if (name.endsWith("::main")) {
+                        extraLabels = setOf("MainFunctionDeclaration");
+                    }
+
                     // While we're here, set projectId on properties to avoid doing an extra pass later.
                     props["projectId"] = projectId
 
-                    mapOf("labels" to it::class.labels) + props
+                    mapOf("labels" to it::class.labels + extraLabels) + props
                 })
             this@Session.executeWrite { tx ->
                 tx.run(
