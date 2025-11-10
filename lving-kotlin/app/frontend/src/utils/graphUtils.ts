@@ -1,5 +1,8 @@
 // Graph visualization utility functions
 
+import type { DataSet, Network } from "vis-network";
+import axios from "axios";
+
 export interface GraphNode {
   id: string;
   label: string;
@@ -343,4 +346,304 @@ export function dragCustomTooltip(event : any) {
   const existing = document.getElementById('custom-tooltip');
   if (!existing) return;
   moveTooltip(existing, event);
+}
+
+interface GraphRef {
+  nodes: DataSet<GraphNode>,
+  edges: DataSet<GraphEdge>,
+  projectId: number,
+}
+
+export function showContextMenu(
+  event: any,
+  graph: GraphRef,
+  network: Network,
+) {
+  hideContextMenu();
+  const nodeId = event.nodes[0];
+
+  const menu = document.createElement('div');
+  menu.id = 'node-context-menu';
+  menu.style.cssText = `
+    position: absolute;
+    background: rgba(40, 40, 40, 0.95);
+    color: white;
+    border: 1px solid #666;
+    border-radius: 6px;
+    padding: 8px 0;
+    font-size: 13px;
+    font-family: sans-serif;
+    z-index: 2000;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    min-width: 160px;
+    backdrop-filter: blur(5px);
+  `;
+
+  const menuItems = [
+    {
+      label: `📈 Expand from Database`,
+      action: () => expandNodesFromDatabase(graph, nodeId),
+      enabled: true,
+    },
+    // XXX: i dont recall how this differs from expand from db
+    // {
+    //   label: '👁️ Expand All Connected',
+    //   action: () => expandAllConnected(nodeId),
+    //   enabled: true
+    // },
+    {
+      label: '🗑️ Remove from View',
+      action: () => removeNodeFromView(graph, nodeId),
+      enabled: true,
+      color: '#dc3545'
+    },
+    {
+      label: '🔍 Focus on Node',
+      action: () => focusOnNode(nodeId, network),
+      enabled: true
+    },
+    { separator: true },
+    {
+      label: `📋 Copy Node ID (${nodeId})`,
+      action: () => copyToClipboard(nodeId),
+      enabled: true
+    },
+    // {
+    //   label: '🔧 Debug Node Info',
+    //   action: () => showNodeDebugInfo(nodeId),
+    //   enabled: true,
+    //   color: '#17a2b8'
+    // }
+  ];
+
+  menuItems.forEach(item => {
+    if (item.separator) {
+      const separator = document.createElement('div');
+      separator.style.cssText = 'height: 1px; background: #666; margin: 4px 8px;';
+      menu.appendChild(separator);
+    } else {
+      const menuItem = document.createElement('div');
+      menuItem.style.cssText = `
+        padding: 8px 16px;
+        cursor: ${item.enabled ? 'pointer' : 'not-allowed'};
+        opacity: ${item.enabled ? '1' : '0.5'};
+        transition: background-color 0.2s;
+        color: ${item.color || 'white'};
+      `;
+      
+      if (item.enabled) {
+        menuItem.addEventListener('mouseenter', () => {
+          menuItem.style.backgroundColor = 'rgba(70, 70, 70, 0.8)';
+        });
+        menuItem.addEventListener('mouseleave', () => {
+          menuItem.style.backgroundColor = 'transparent';
+        });
+        menuItem.addEventListener('click', (e) => {
+          e.stopPropagation();
+          item.action();
+          hideContextMenu();
+        });
+      }
+      
+      menuItem.textContent = item.label!!;
+      menu.appendChild(menuItem);
+    }
+  });
+  
+  document.body.appendChild(menu);
+
+  let x = 0, y = 0;
+  
+  if (event.pointer && event.pointer.DOM) {
+    const canvas = event.event.target;
+    if (canvas) {
+      const bbox = canvas.getBoundingClientRect();
+      x = bbox.left + event.pointer.DOM.x + 10;
+      y = bbox.top + event.pointer.DOM.y + 10;
+    } else {
+      x = event.pointer.DOM.x + 10;
+      y = event.pointer.DOM.y - 10;
+    }
+  } else if (event.event && event.event.clientX) {
+    x = event.event.clientX + 10;
+    y = event.event.clientY - 10;
+  } else {
+    x = event.clientX + 10;
+    y = event.clientY - 10;
+  }
+  
+  x += window.scrollX;
+  y += window.scrollY;
+  menu.style.left = x + 'px';
+  menu.style.top = y + 'px';
+}
+
+export function hideContextMenu() {
+  const existing = document.getElementById('node-context-menu');
+  if (existing) {
+    existing.remove();
+  }
+}
+
+function removeNodeFromView(graph: GraphRef, nodeId: string) {
+  graph.nodes.remove(nodeId);
+  showTemporaryMessage(`Removed node ${nodeId} from view`);
+}
+
+async function expandNodesFromDatabase(graph: GraphRef, nodeId: string) {
+  const query = `
+    MATCH (start) 
+    WHERE id(start) = ${nodeId}
+    CALL apoc.path.expandConfig(start, {
+        relationshipFilter: 'DFG|EOG|AST|REFERS_TO|PDG|USAGE|SCOPE',
+        minLevel: 1,
+        maxLevel: 1,
+        bfs: false,
+        uniqueness: 'RELATIONSHIP_GLOBAL'
+    })
+    YIELD path
+    WITH DISTINCT path
+    RETURN path
+  `
+
+  var data;
+  try {
+    const response = await axios.post(`/projects/${graph.projectId}/query`, { query });
+    data = response.data;
+  } catch {
+    showTemporaryMessage(`An error occurred when querying connecting edges for node ${nodeId}.`);
+    return;
+  }
+
+  if (!data.edges || data.edges.length === 0) {
+    showTemporaryMessage(`No connecting edges found for node ${nodeId}.`);
+    return;
+  };
+
+  // merge distinct nodes onto graph:
+  var nodes: any = [];
+  data.nodes
+    .filter((n: any) => { return !graph.nodes.getIds().includes(n.id) })
+    .forEach((n: any) => {
+      nodes.push({
+        id: n.id,
+        code: n.title.code,
+        rawLabels: n.labels,
+        label: getNodeDisplayName(n),
+        title: createNodeTooltip(n),
+        shape: getNodeShape(n),
+        color: getNodeColor(n),
+        size: 25,
+        font: { color: '#fff', size: 12 },
+        borderWidth: 2,
+        shadow: { enabled: true, color: 'rgba(0,0,0,0.3)', size: 5 },
+        widthConstraint: { maximum: 150 },
+      }
+    )}
+  );
+  graph.nodes.add(nodes);
+
+  // merge distinct edges:
+  var edges: any = [];
+  data.edges
+    .filter((e: any) => { return !graph.edges.getIds().includes(e.id) })
+    .forEach((e: any) => {
+      const edgeStyle = getEdgeStyle(e);
+      edges.push({
+        id: e.id,
+        from: e.from,
+        to: e.to,
+        label: e.label,
+        title: createEdgeTooltip(e),
+        color: edgeStyle.color,
+        width: edgeStyle.width,
+        dashes: edgeStyle.dashes,
+        arrows: edgeStyle.arrows,
+        font: { color: '#fff', size: 10, background: 'rgba(0,0,0,0.5)' },
+        smooth: { enabled: true, type: 'continuous' as const, roundness: 0.5 },
+      }
+    )}
+  );
+  graph.edges.add(edges);
+}
+
+function focusOnNode(nodeId: string, network: Network) {
+  if (network) {
+    network.focus(nodeId, {
+      scale: 1.5,
+      animation: {
+        duration: 1000,
+        easingFunction: 'easeInOutQuad'
+      }
+    });
+
+    // Highlight the node temporarily
+    network.selectNodes([nodeId]);
+    setTimeout(() => {
+      network.unselectAll();
+    }, 2000);
+  }
+  
+  console.log('[DEBUG] Focused on node:', nodeId);
+}
+
+function copyToClipboard(text: string) {
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(text).then(() => {
+      console.log('[DEBUG] Copied to clipboard:', text);
+      showTemporaryMessage('Node ID copied to clipboard!');
+    }).catch(err => {
+      console.error('[DEBUG] Failed to copy to clipboard:', err);
+    });
+  } else {
+    // Fallback for older browsers
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    document.execCommand('copy');
+    document.body.removeChild(textArea);
+    showTemporaryMessage('Node ID copied to clipboard!');
+  }
+}
+
+function showTemporaryMessage(message: string) {
+  const toast = document.createElement('div');
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(40, 40, 40, 0.9);
+    color: white;
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    z-index: 3000;
+    animation: slideInRight 0.3s ease-out;
+  `;
+  
+  // Add animation keyframes
+  if (!document.getElementById('toast-animations')) {
+    const style = document.createElement('style');
+    style.id = 'toast-animations';
+    style.textContent = `
+      @keyframes slideInRight {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+      }
+      @keyframes slideOutRight {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  
+  toast.textContent = message;
+  document.body.appendChild(toast);
+  
+  setTimeout(() => {
+    toast.style.animation = 'slideOutRight 0.3s ease-in forwards';
+    setTimeout(() => toast.remove(), 300);
+  }, 2000);
 }

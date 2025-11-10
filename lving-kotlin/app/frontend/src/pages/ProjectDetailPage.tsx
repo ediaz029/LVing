@@ -381,7 +381,7 @@ export function ProjectDetailPage() {
                       </Box>
                     </Alert>
                   ) : graphData && (graphData.nodes.length > 0 || graphData.edges.length > 0) ? (
-                    <GraphVisualization data={graphData} height="650px" />
+                    <GraphVisualization data={graphData} project={id} height="650px" />
                   ) : (
                     <Box textAlign="center" py={10} color="gray.500" bg="gray.50" borderRadius="md">
                       <Text fontSize="md" fontWeight="medium" mb={2}>📊 Graph Visualization</Text>

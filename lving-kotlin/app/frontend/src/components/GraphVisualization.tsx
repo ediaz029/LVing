@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Network } from 'vis-network';
+import { DataSet, Network } from 'vis-network/standalone';
 import {
   Box,
   VStack,
@@ -28,6 +28,8 @@ import {
   showCustomTooltip,
   hideCustomTooltip,
   dragCustomTooltip,
+  showContextMenu,
+  hideContextMenu,
 } from '../utils/graphUtils';
 import { highlightCorrespondingCode, removeHighlightNode } from '../utils/codeHighlight'
 
@@ -36,17 +38,23 @@ interface GraphVisualizationProps {
     nodes: GraphNode[];
     edges: GraphEdge[];
   } | null;
+  project: number,
   height?: string;
 }
 
-export function GraphVisualization({ data, height = '100%' }: GraphVisualizationProps) {
+export function GraphVisualization({ data, project, height = '100%' }: GraphVisualizationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const networkRef = useRef<Network | null>(null);
+  const nodeRef = useRef(null);
+  const edgeRef = useRef(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [originalData, setOriginalData] = useState<{ nodes: GraphNode[]; edges: GraphEdge[] } | null>(null);
   const [filteredData, setFilteredData] = useState<{ nodes: GraphNode[]; edges: GraphEdge[] } | null>(null);
   const [zoomLevel, setZoomLevel] = useState(1.0);
   
+  // Hide context on outside click:
+  document.addEventListener('click', hideContextMenu);
+
   // Filter states
   const [filters, setFilters] = useState<EnabledFilters>({
     function: true,
@@ -192,11 +200,14 @@ export function GraphVisualization({ data, height = '100%' }: GraphVisualization
     console.log('[GraphVisualization] Nodes for Network:', enhancedNodes.length);
     console.log('[GraphVisualization] Edges for Network:', enhancedEdges.length);
     
+    edgeRef.current = new DataSet(enhancedEdges);
+    nodeRef.current = new DataSet(enhancedNodes);
+
     const network = new Network(
       containerRef.current,
       {
-        nodes: enhancedNodes,
-        edges: enhancedEdges,
+        nodes: nodeRef.current!!,
+        edges: edgeRef.current!!,
       },
       {
         nodes: {
@@ -258,7 +269,7 @@ export function GraphVisualization({ data, height = '100%' }: GraphVisualization
     network.on('hoverNode', (params) => {
       console.log('[DEBUG] Hovering over node:', params.node);
 
-      const node = enhancedNodes.find(n => { return n.id === params.node.toString(); });
+      const node = (nodeRef.current!!).get(params.node);
       if (!node) return;
 
       // Tooltip:
@@ -281,6 +292,24 @@ export function GraphVisualization({ data, height = '100%' }: GraphVisualization
 
     network.on('selectNode', (params) => {
       console.log('[DEBUG] Selected node:', params.nodes[0]);
+    });
+
+    // Context menu:
+    network.on('oncontext', (params) => {
+      params.event.preventDefault();
+      if (params.nodes.length > 0) {
+        showContextMenu(
+          params, 
+          {nodes: nodeRef.current!!, edges: edgeRef.current!!, projectId: project!!},
+          network);
+      } else {
+        hideContextMenu();
+      }
+    })
+
+    // Canvas click:
+    network.on("click", function (_) {
+      hideContextMenu();
     });
 
     // Set initial zoom level
