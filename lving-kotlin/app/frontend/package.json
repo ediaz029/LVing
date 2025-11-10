@@ -13,6 +13,7 @@
     "@chakra-ui/icons": "^2.1.1",
     "@chakra-ui/react": "^2.10.9",
     "@codemirror/lang-rust": "^6.0.1",
+    "@codemirror/legacy-modes": "^6.5.2",
     "@codemirror/state": "^6.4.1",
     "@codemirror/view": "^6.24.1",
     "@emotion/react": "^11.14.0",

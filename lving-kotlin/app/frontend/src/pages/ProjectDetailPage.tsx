@@ -246,51 +246,52 @@ export function ProjectDetailPage() {
         )}
 
         {/* 3-Panel Layout - Full Width */}
-        <HStack align="stretch" spacing={0} w="100%">
+        <HStack align="stretch" spacing={0} w="100%" alignItems="flex-start">
           {/* Left Panel: Source Code */}
-          <VStack flex={0.8} align="stretch" minW="0" bg="white" borderRight="1px solid" borderColor="gray.200" p={4}>
-            <Heading size="md" mb={2}>Source Code</Heading>
-            {sourceLoading ? (
-              <Box textAlign="center" py={10}>
-                <Spinner />
-                <Text mt={2} fontSize="sm">Loading source code...</Text>
-              </Box>
-            ) : (
-              <CodeMirrorEditor
-                value={sourceCode || "// No source code available"}
-                name="RUST_EDITOR"
-                readOnly={true}
-                language="rust"
-                height="500px"
-              />
-            )}
-          </VStack>
-
-          {/* Middle Panel: LLVM-IR */}
-          <VStack flex={0.8} align="stretch" minW="0" bg="white" borderRight="1px solid" borderColor="gray.200" p={4}>
-            <Heading size="md" mb={2}>LLVM-IR</Heading>
-            {!project.llvmIrPath ? (
-              <Alert status="info">
-                <AlertIcon />
-                <Box fontSize="sm">
-                  LLVM-IR will be available after the rustc compilation phase completes.
+          <Box flex="1.6" bg="white" borderRight="1px solid" borderColor="gray.200" p={4} position="sticky" top="72px" alignSelf="flex-start">
+            <VStack align="stretch" spacing={4}>
+              {/* Top: Rust */}
+              <Heading size="md" mb={2}>Source Code</Heading>
+              {sourceLoading ? (
+                <Box textAlign="center" py={10}>
+                  <Spinner />
+                  <Text mt={2} fontSize="sm">Loading source code...</Text>
                 </Box>
-              </Alert>
-            ) : llvmLoading ? (
-              <Box textAlign="center" py={10}>
-                <Spinner />
-                <Text mt={2} fontSize="sm">Loading LLVM-IR...</Text>
-              </Box>
-            ) : (
-              <CodeMirrorEditor
-                value={llvmIr || "// No LLVM-IR available"}
-                name="IR_EDITOR"
-                readOnly={true}
-                language="plain"
-                height="500px"
-              />
-            )}
-          </VStack>
+              ) : (
+                <CodeMirrorEditor
+                  value={sourceCode || "// No source code available"}
+                  name="RUST_EDITOR"
+                  readOnly={true}
+                  language="rust"
+                  height="300px"
+                />
+              )}
+
+              {/* Bottom: IR */}
+              <Heading size="md" mb={2}>LLVM-IR</Heading>
+              {!project.llvmIrPath ? (
+                <Alert status="info">
+                  <AlertIcon />
+                  <Box fontSize="sm">
+                    LLVM-IR will be available after the rustc compilation phase completes.
+                  </Box>
+                </Alert>
+              ) : llvmLoading ? (
+                <Box textAlign="center" py={10}>
+                  <Spinner />
+                  <Text mt={2} fontSize="sm">Loading LLVM-IR...</Text>
+                </Box>
+              ) : (
+                <CodeMirrorEditor
+                  value={llvmIr || "// No LLVM-IR available"}
+                  name="IR_EDITOR"
+                  readOnly={true}
+                  language="llvm"
+                  height="300px"
+                />
+              )}
+            </VStack>
+          </Box>
 
           {/* Right Panel: Query Graph - Wider for better visualization */}
           <VStack flex={2.4} align="stretch" minW="0" bg="white" p={4} spacing={3}>

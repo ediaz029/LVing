@@ -4,6 +4,8 @@ import { StateField, StateEffect, EditorState, RangeSetBuilder } from '@codemirr
 import { EditorView, Decoration, ViewUpdate } from '@codemirror/view';
 import { basicSetup } from 'codemirror';
 import { rust } from '@codemirror/lang-rust';
+import { StreamLanguage } from '@codemirror/language';
+import { llvm } from '../utils/llvmIRSyntax.ts';
 
 const registry = new Map<String, EditorView>();
 
@@ -90,7 +92,7 @@ interface CodeMirrorEditorProps {
   name: string;
   readOnly?: boolean;
   onChange?: (value: string) => void;
-  language?: 'rust' | 'plain';
+  language?: 'rust' | 'plain' | "llvm";
   height?: string;
 }
 
@@ -117,6 +119,8 @@ export function CodeMirrorEditor({
 
     if (language === 'rust') {
       extensions.push(rust());
+    } else if (language === "llvm") {
+      extensions.push(StreamLanguage.define(llvm));
     }
 
     if (onChange && !readOnly) {
