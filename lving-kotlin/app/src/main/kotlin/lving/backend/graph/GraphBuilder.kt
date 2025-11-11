@@ -36,8 +36,12 @@ package lving.backend.graph
 import de.fraunhofer.aisec.cpg.TranslationResult
 import de.fraunhofer.aisec.cpg.graph.Node
 import de.fraunhofer.aisec.cpg.graph.Persistable
+import de.fraunhofer.aisec.cpg.graph.blocks
+import de.fraunhofer.aisec.cpg.graph.declarations.FunctionDeclaration
+import de.fraunhofer.aisec.cpg.graph.declarations.VariableDeclaration
 import de.fraunhofer.aisec.cpg.graph.edges.collections.EdgeCollection
 import de.fraunhofer.aisec.cpg.graph.nodes
+import de.fraunhofer.aisec.cpg.graph.statements.expressions.CallExpression
 import de.fraunhofer.aisec.cpg.helpers.Benchmark
 import de.fraunhofer.aisec.cpg.helpers.IdentitySet
 import de.fraunhofer.aisec.cpg.helpers.identitySetOf
@@ -50,7 +54,6 @@ import java.util.WeakHashMap
 import kotlin.collections.iterator
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
-import lving.backend.graph.Demangle
 
 private typealias Relationship = Map<String, Any?>
 private val log = LoggerFactory.getLogger("GraphBuilder")
@@ -77,6 +80,20 @@ const val nodeChunkSize = 10000
 
 private val FILTERED_NODES = listOf("UnknownType")
 private val FILTERED_EDGES = listOf("LANGUAGE")
+
+// @llvm.declare.dbg calls from within Rust standard library are excluded from being walked.
+private val FILTERED_DBG_DECLARE_FUNCS = listOf(
+    "std::",
+    "core::",
+    "alloc::",
+    "proc_macro::",
+    "std_detect::",
+    "test::",
+    "__rust",
+    "__CxxFrame",
+    "llvm.",
+    "literal_",
+)
 
 /**
  * Persists the current [TranslationResult] into a graph database.
@@ -143,6 +160,7 @@ context(Session)
 private fun List<Node>.persist(projectId: String): Map<Node, String> {
     // node.properties is immutable and we need the ID for relationships.
     val idMap = WeakHashMap<Node, String>(this.size)
+    val nodeLabelMap = WeakHashMap<Node, String>(this.filter { n -> n is VariableDeclaration }.size)
 
     this
         .filter { it::class::labels.get().any { l -> !FILTERED_NODES.contains(l) } }
@@ -166,10 +184,59 @@ private fun List<Node>.persist(projectId: String): Map<Node, String> {
                     props["fullName"] = name;
                     props["localName"] = name;
 
+                    /*
+                    * just for the usability test / cypher generation
+                    * im 100% aware that this is not the most sane approach
+                    */
+                    if (it is FunctionDeclaration && !(FILTERED_DBG_DECLARE_FUNCS.any { s -> name.contains(s) })) {
+                        println(name);
+                        // tag a node that is interesting:
+                        // a node is interesting if it:
+                        //   - is a variabledeclaration
+                        //   - has a corresponding @llvm.dbg.declare
+                        //   - does NOT come from std:: or core::.
+                        it.blocks.forEach { b ->
+                            b.nodes
+                                .filter { n -> n is CallExpression && n.name.toString().equals("llvm.dbg.declare") }
+                                .forEach { n ->
+                                    // from llvm.debug.declare, the first argument is (metadata <type> <reg>, ...
+                                    // but this isn't interpreted properly when creating the graph. so, the first argument's node
+                                    // which is SUPPOSED to point back to the REAL node just points to unknown.
+                                    // we could walk back the EOG, but I haven't really found the best way to get
+                                    // back to the variabledeclaration since it may be directly or through assignexprs, etc.
+
+                                    // the approach i do right now to avoid handling every case:
+                                    // since it is guaranteed that llvm.dbg.declare's first arg is
+                                    // present within the same block, i just search for the name immediately following the %.
+                                    val declareNode = n as CallExpression
+                                    val code = declareNode.arguments[0].code
+                                    val split = code!!.split("%")
+                                    val varName = split.getOrNull(split.size - 1) ?: return@forEach
+
+                                    // find node:
+                                    val node: VariableDeclaration? = b.nodes.find { blockNode ->
+                                        blockNode is VariableDeclaration && blockNode.name.localName.equals(varName)
+                                    } as VariableDeclaration?
+
+                                    if (node == null) return@forEach
+
+                                    // since this isn't time to label the node, we wait for later.
+                                    // though, we'll save the reference to it.
+                                    nodeLabelMap[node] = "TrackedVariable"
+                                }
+                        }
+                    }
+
                     // tag main:
-                    var extraLabels = setOf<String>()
+                    var extraLabels = mutableSetOf<String>()
                     if (name.endsWith("::main")) {
-                        extraLabels = setOf("MainFunctionDeclaration");
+                        extraLabels.add("MainFunctionDeclaration");
+                    }
+
+                    // if we were in nodelabelmap:
+                    if (nodeLabelMap.contains(it)) {
+                        extraLabels.add(nodeLabelMap[it]!!);
+                        nodeLabelMap.remove(it);
                     }
 
                     // While we're here, set projectId on properties to avoid doing an extra pass later.
