@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Heading,
@@ -12,18 +12,17 @@ import {
   HStack,
   Button,
   Text,
-  Select,
   Textarea,
 } from "@chakra-ui/react";
+import { Select } from "chakra-react-select";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 import { CodeMirrorEditor } from "../components/CodeMirrorEditor";
 import { GraphVisualization } from "../components/GraphVisualization";
-import { CYPHER_EXAMPLES, QUERY_EXAMPLE_OPTIONS } from "../utils/queryExamples";
 import { CodeStrings } from "../utils/codeHighlight"
 import { parseMetadata } from "../utils/metadata.ts"
-import { getCypherExamples } from "../utils/queryGeneration.ts"
+import { getCypherOptions, buildCypherQuery } from "../utils/queryGeneration.ts"
 
 interface Project {
   id: string;
@@ -85,8 +84,10 @@ const getStatusColor = (status: string) => {
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [cypherQuery, setCypherQuery] = useState('');
-  const [selectedExample, setSelectedExample] = useState('');
+  const [selectedExample, setSelectedExample] = useState([]);
+  const [selectedNode, setSelectedNode] = useState([]);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
+  var cypherOptions: { value: string, label: string }[] = [];
 
   const { data: project, isLoading, error, refetch } = useQuery<Project>({
     queryKey: ["project", id],
@@ -101,7 +102,7 @@ export function ProjectDetailPage() {
       if (data.status === "ANALYZING_RUSTC" || data.status === "ANALYZING_CPG") {
         return 5000;
       }
-      
+
       return false; // Don't poll when CREATED, COMPLETED or in error states
     },
   });
@@ -143,11 +144,23 @@ export function ProjectDetailPage() {
     },
   });
 
-  const cypherExamples = getCypherExamples(project.trackedNodes);
-  const handleExampleChange = (value: string) => {
-    setSelectedExample(value);
-    setCypherQuery(value);
+  const handleNodeChange = (value: any) => {
+    setSelectedNode(value);
   };
+
+  const handleExampleChange = (value: any) => {
+    setSelectedExample(value);
+  };
+
+  useEffect(() => {
+    if (selectedExample.length == 0 && selectedNode.length == 0) {
+      setCypherQuery("");
+      return;
+    }
+
+    const query = buildCypherQuery(selectedNode, selectedExample);
+    if (query) setCypherQuery(query);
+  }, [selectedExample, selectedNode]);
 
   const handleRunQuery = () => {
     if (cypherQuery.trim()) {
@@ -183,6 +196,16 @@ export function ProjectDetailPage() {
       </Box>
     );
   }
+
+  if (project.trackedNodes == null) { project.trackedNodes = ""; }
+  var trackedNodes = project.trackedNodes.split(',');
+  trackedNodes = trackedNodes.map( n => { return n.trim(); });
+  cypherOptions = getCypherOptions();
+
+  var nodeOptions: { value: string, label: string}[] = [];
+  trackedNodes.forEach( n => {
+    nodeOptions.push({ value: n, label: n});
+  });
 
   // Set IR and Rust code values for CodeStrings
   CodeStrings.RUST_CODE = sourceCode;
@@ -313,26 +336,35 @@ export function ProjectDetailPage() {
                 )}
                 
                 {/* Query Examples Dropdown */}
-                <Box>
-                  <Text fontSize="sm" mb={1} fontWeight="medium">
-                    📝 Query Examples:
-                  </Text>
-                  <Select
-                    value={selectedExample}
-                    onChange={(e) => handleExampleChange(e.target.value)}
-                    size="sm"
-                    bg="gray.700"
-                    color="white"
-                    borderColor="gray.600"
-                    placeholder="Select a query example..."
-                  >
-                    {cypherExamples.map(option => (
-                      <option value={option.cypher} style={{ background: '#2D3748', color: 'white' }}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </Select>
-                </Box>
+                <HStack w="100%">
+                  <Box flex="0 0 25%">
+                      <Text fontSize="sm" mb={1} fontWeight="medium">
+                        📝 Tracking Nodes:
+                      </Text>
+                      <Select
+                        isMulti
+                        value={selectedNode}
+                        onChange={(e: any) => handleNodeChange(e)}
+                        size="sm"
+                        placeholder="Select a node..."
+                        options={nodeOptions}
+                      ></Select>
+                  </Box>
+
+                  <Box flex="0 0 74%">
+                      <Text fontSize="sm" mb={1} fontWeight="medium">
+                        📝 Queries and Relationships:
+                      </Text>
+                      <Select
+                        isMulti
+                        value={selectedExample}
+                        onChange={(e: any) => handleExampleChange(e)}
+                        size="sm"
+                        options={cypherOptions}
+                        placeholder="Select a query example..."
+                      ></Select>
+                  </Box>
+                </HStack>
 
                 {/* Cypher Query Editor */}
                 <Box>
