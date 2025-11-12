@@ -23,6 +23,7 @@ import { GraphVisualization } from "../components/GraphVisualization";
 import { CYPHER_EXAMPLES, QUERY_EXAMPLE_OPTIONS } from "../utils/queryExamples";
 import { CodeStrings } from "../utils/codeHighlight"
 import { parseMetadata } from "../utils/metadata.ts"
+import { getCypherExamples } from "../utils/queryGeneration.ts"
 
 interface Project {
   id: string;
@@ -32,6 +33,7 @@ interface Project {
   llvmIrPath: string | null;
   createdAt: number;
   analysisResult: string | null;
+  trackedNodes: string | null;
 }
 
 interface GraphData {
@@ -141,15 +143,10 @@ export function ProjectDetailPage() {
     },
   });
 
+  const cypherExamples = getCypherExamples(project.trackedNodes);
   const handleExampleChange = (value: string) => {
     setSelectedExample(value);
-    if (value && CYPHER_EXAMPLES[value]) {
-      setCypherQuery(CYPHER_EXAMPLES[value]);
-      console.log('[DEBUG] Loaded query example:', value);
-      console.log('[DEBUG] Query text:', CYPHER_EXAMPLES[value]);
-    } else {
-      setCypherQuery('');
-    }
+    setCypherQuery(value);
   };
 
   const handleRunQuery = () => {
@@ -329,8 +326,8 @@ export function ProjectDetailPage() {
                     borderColor="gray.600"
                     placeholder="Select a query example..."
                   >
-                    {QUERY_EXAMPLE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value} style={{ background: '#2D3748', color: 'white' }}>
+                    {cypherExamples.map(option => (
+                      <option value={option.cypher} style={{ background: '#2D3748', color: 'white' }}>
                         {option.label}
                       </option>
                     ))}

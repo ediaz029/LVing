@@ -24,7 +24,8 @@ class ProjectService {
             sourceCodePath = row[Projects.sourceCodePath],
             llvmIrPath = row[Projects.llvmIrPath],
             createdAt = row[Projects.createdAt],
-            analysisResult = row[Projects.analysisResult]
+            analysisResult = row[Projects.analysisResult],
+            trackedNodes = row[Projects.trackedNodes],
         )
 
     suspend fun getAllProjects(): List<Project> = dbQuery {
@@ -61,6 +62,14 @@ class ProjectService {
                 if (llvmIrPath != null) {
                     it[Projects.llvmIrPath] = llvmIrPath
                 }
+            }
+        }
+    }
+
+    suspend fun updateTrackedNodes(id: String, nodes: String? = null) {
+        dbQuery {
+            Projects.update({ Projects.id eq id }) {
+                it[Projects.trackedNodes] = nodes;
             }
         }
     }
@@ -104,6 +113,9 @@ class ProjectService {
                     val cpgService = CpgService()
                     cpgService.runCpgAnalysis(projectId, irPath)
                     updateProjectStatus(projectId, "COMPLETED")
+
+                    val nodes = cpgService.getTrackedNodes(projectId)
+                    updateTrackedNodes(projectId, nodes);
                 } catch (e: Exception) {
                     println("CPG analysis failed: ${e.message}")
                     e.printStackTrace()

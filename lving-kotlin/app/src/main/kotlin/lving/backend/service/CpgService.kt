@@ -133,6 +133,17 @@ class CpgService {
         }
     }
 
+    fun getTrackedNodes(projectId: String): String {
+        val cypher = """
+            MATCH (n: TrackedVariable)
+            RETURN n
+        """.trimIndent()
+
+        val data = executeQuery(projectId, cypher);
+        val s = data.nodes.toSet().joinToString { it.title["name"].toString() }
+        return s;
+    }
+
     private fun injectProjectIdFilter(cypherQuery: String, projectId: String): String {
         // Simple injection: add WHERE clause after first MATCH if not present
         // This is a basic implementation - for production, use a proper Cypher parser

@@ -189,7 +189,6 @@ private fun List<Node>.persist(projectId: String): Map<Node, String> {
                     * im 100% aware that this is not the most sane approach
                     */
                     if (it is FunctionDeclaration && !(FILTERED_DBG_DECLARE_FUNCS.any { s -> name.contains(s) })) {
-                        println(name);
                         // tag a node that is interesting:
                         // a node is interesting if it:
                         //   - is a variabledeclaration

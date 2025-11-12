@@ -29,6 +29,7 @@ object Projects : Table() {
     val llvmIrPath = varchar("llvm_ir_path", 1024).nullable()
     val createdAt = long("created_at")
     val analysisResult = text("analysis_result").nullable()
+    val trackedNodes = text("tracked_nodes").nullable()
 
     override val primaryKey = PrimaryKey(id)
 }

@@ -10,7 +10,8 @@ data class Project(
     val sourceCodePath: String,
     val llvmIrPath: String?,
     val createdAt: Long,
-    val analysisResult: String?
+    val analysisResult: String?,
+    val trackedNodes: String?
 )
 
 @Serializable
