@@ -25,9 +25,6 @@ import {
   createEdgeTooltip,
   filterGraphData,
   getNodeDisplayName,
-  showCustomTooltip,
-  hideCustomTooltip,
-  dragCustomTooltip,
   showContextMenu,
   hideContextMenu,
 } from '../utils/graphUtils';
@@ -159,7 +156,7 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
     }
 
     // Enhance nodes with styling and tooltips
-    const enhancedNodes = filteredData.nodes.map(node => ({
+    var enhancedNodes = filteredData.nodes.map(node => ({
       id: node.id,
       code: node.title.code,
       rawLabels: node.labels,
@@ -178,7 +175,7 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
     console.log('[GraphVisualization] Sample enhanced node:', enhancedNodes[0]);
 
     // Enhance edges with styling and tooltips
-    const enhancedEdges = filteredData.edges.map(edge => {
+    var enhancedEdges = filteredData.edges.map(edge => {
       const edgeStyle = getEdgeStyle(edge);
       return {
         id: edge.id,
@@ -199,9 +196,21 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
     console.log('[GraphVisualization] Creating Network with container:', containerRef.current);
     console.log('[GraphVisualization] Nodes for Network:', enhancedNodes.length);
     console.log('[GraphVisualization] Edges for Network:', enhancedEdges.length);
-    
-    edgeRef.current = new DataSet(enhancedEdges);
-    nodeRef.current = new DataSet(enhancedNodes);
+
+    const removeDuplicateByID = (arr: {id: string}[]) => {
+      var s: any[] = [];
+      return arr.filter(e => { 
+        if (!s.includes(e.id)) {
+          s.push(e.id)
+          return true;
+        }
+        return false;
+      });
+    }
+
+    // Kill duplicates:
+    edgeRef.current = new DataSet(removeDuplicateByID(enhancedEdges));
+    nodeRef.current = new DataSet(removeDuplicateByID(enhancedNodes));
 
     const network = new Network(
       containerRef.current,
@@ -222,19 +231,26 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
         edges: {
           color: { color: '#fff' },
           arrows: 'to',
-          font: { color: '#fff', size: 10 },
+          font: { color: '#fff', size: 12, strokeWidth: 0, align: 'top' },
           width: 2,
-          smooth: { enabled: true, type: 'continuous', roundness: 0.5 },
+          smooth: { enabled: true, type: 'dynamic', roundness: 0.5 },
           chosen: true,
         },
         layout: { improvedLayout: true },
         physics: {
           enabled: true,
-          stabilization: { iterations: 100 },
+          stabilization: {
+            enabled: true,
+            iterations: 300,
+            fit: true,
+          },
           barnesHut: {
-            gravitationalConstant: -2000,
-            springConstant: 0.001,
-            springLength: 200,
+            gravitationalConstant: -30000,
+            centralGravity: 0.001,
+            springConstant: 0.02,
+            springLength: 100,
+            damping: 0.09,
+            avoidOverlap: 1,
           },
         },
         interaction: {
@@ -267,13 +283,10 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
 
     // Add event listeners
     network.on('hoverNode', (params) => {
-      console.log('[DEBUG] Hovering over node:', params.node);
-
       const node = (nodeRef.current!!).get(params.node);
       if (!node) return;
 
-      // Tooltip:
-      showCustomTooltip(params, node.title);
+      console.log('[DEBUG] Hovering over node:', node);
 
       // Code highlighting:
       if (node.code && !node.rawLabels.includes("Literal")) {
@@ -281,13 +294,21 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
       }
     });
 
-    network.on('blurNode', (params) => {
-      hideCustomTooltip();
-      removeHighlightNode(params.node.toString());
-    })
+    network.on("showPopup", (params) => {
+      const tooltip = document.querySelector(".vis-tooltip");
+      if (tooltip) {
+        const node = (nodeRef.current!!).get(params);
+        const edge = (edgeRef.current!!).get(params);
+        if (node) {
+          tooltip.innerHTML = node.title;
+        } else {
+          tooltip.innerHTML = edge.title;
+        }
+      }
+    });
 
-    network.on('dragging', (params) => {
-      dragCustomTooltip(params);
+    network.on('blurNode', (params) => {
+      removeHighlightNode(params.node.toString());
     })
 
     network.on('selectNode', (params) => {
@@ -369,6 +390,7 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
             isChecked={filters.function}
             onChange={() => handleFilterChange('function')}
             colorScheme="green"
+            textColor="#E2EEF0"
             size="sm"
           >
             Functions
@@ -377,6 +399,7 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
             isChecked={filters.variable}
             onChange={() => handleFilterChange('variable')}
             colorScheme="blue"
+            textColor="#E2EEF0"
             size="sm"
           >
             Variables
@@ -385,6 +408,7 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
             isChecked={filters.operator}
             onChange={() => handleFilterChange('operator')}
             colorScheme="yellow"
+            textColor="#E2EEF0"
             size="sm"
           >
             Operators
@@ -393,6 +417,7 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
             isChecked={filters.literal}
             onChange={() => handleFilterChange('literal')}
             colorScheme="purple"
+            textColor="#E2EEF0"
             size="sm"
           >
             Literals
@@ -401,6 +426,7 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
             isChecked={filters.unsafe}
             onChange={() => handleFilterChange('unsafe')}
             colorScheme="red"
+            textColor="#E2EEF0"
             size="sm"
           >
             Unsafe Operations
@@ -409,6 +435,7 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
             isChecked={filters.other}
             onChange={() => handleFilterChange('other')}
             colorScheme="gray"
+            textColor="#E2EEF0"
             size="sm"
           >
             Other

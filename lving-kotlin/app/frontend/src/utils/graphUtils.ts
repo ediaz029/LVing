@@ -50,6 +50,7 @@ export function getNodeShape(node: GraphNode): string {
   if (label.includes('variable') || label.includes('declaration')) return 'circle';
   if (label.includes('operator')) return 'diamond';
   if (label.includes('literal')) return 'triangle';
+  if (node.labels.includes('CallExpression')) return 'triangleDown';
   return 'dot'; // default
 }
 
@@ -68,7 +69,11 @@ export function getNodeColor(node: GraphNode): { background: string; border: str
   if (titleString.includes('unsafe') || titleString.includes('*mut') || titleString.includes('raw')) {
     return { background: '#dc3545', border: '#fff' }; // Red for unsafe
   }
-  
+
+  if (titleString.includes('drop')) {
+    return { background: '#e66726', border: '#fff' }; 
+  }
+
   return { background: '#007acc', border: '#fff' }; // Default blue
 }
 
@@ -150,15 +155,32 @@ export function getEdgeStyle(edge: GraphEdge): {
 
 // Create rich tooltip for nodes
 export function createNodeTooltip(node: GraphNode): string {
-  let tooltipText = `Node: ${node.label}\nID: ${node.id}`;
-  
+  const keyStyle = `<u style="color: yellow !important;">`;
+
+  // The last 3 labels are the most specific.
+  let labelSlice = node.labels.slice(Math.max(node.labels.length - 3, 0), node.labels.length);
+  let tooltipText = `${keyStyle}Node:</u> ${labelSlice.join(', ')}\n${keyStyle}ID:</u> ${node.id}`;
+
+  const ignoredProps = ["template", "projectId", "isVariadic", "nameDelimiter", "isImplicit", "isInferred", "referenceTag"];
+  const nameProps = ["name", "localName", "fullName"];
+
   if (node.title && typeof node.title === 'object') {
+    var fullName = "";
     Object.entries(node.title).forEach(([key, value]) => {
+      if (ignoredProps.includes(key)) return;
+
+      // Remove name, localName, or fullName is the value is empty.
+      if (nameProps.includes(key) && value == '') return;
+
+      // Remove localName and name if it is the same as fullName.
+      if (["localName", "name"].includes(key) && value == fullName) return;
+      if (key == "fullName") { fullName = value; }
+
       if (key !== 'id' && value !== null && value !== undefined) {
         // Truncate long values
         const valueStr = String(value);
         const displayValue = valueStr.length > 100 ? valueStr.substring(0, 100) + '...' : valueStr;
-        tooltipText += `\n${key}: ${displayValue}`;
+        tooltipText += `\n<u style="color: yellow !important;">${key}:</u> ${displayValue}`;
       }
     });
   }
@@ -168,12 +190,13 @@ export function createNodeTooltip(node: GraphNode): string {
 
 // Create rich tooltip for edges
 export function createEdgeTooltip(edge: GraphEdge): string {
-  let tooltipText = `Relationship: ${edge.label}\nFrom: ${edge.from} → To: ${edge.to}`;
+  const keyStyle = `<u style="color: yellow !important;">`;
+  let tooltipText = `${keyStyle}Relationship:</u> ${edge.label}\n${keyStyle}From:</u> ${edge.from} → ${keyStyle}To:</u> ${edge.to}`;
   
   if (edge.title && typeof edge.title === 'object') {
     Object.entries(edge.title).forEach(([key, value]) => {
       if (key !== 'id' && value !== null && value !== undefined) {
-        tooltipText += `\n${key}: ${value}`;
+        tooltipText += `\n${keyStyle}${key}:</u> ${value}`;
       }
     });
   }
@@ -277,75 +300,6 @@ export function filterGraphData(
   });
   
   return { nodes: filteredNodes, edges: filteredEdges };
-}
-
-function moveTooltip(tooltip: HTMLElement, event: any) {
-  // Get mouse position from different possible event properties
-  let x = 0, y = 0;
-  
-  if (event.pointer && event.pointer.DOM) {
-    const canvas = event.event.target;
-    if (canvas) {
-      const bbox = canvas.getBoundingClientRect();
-      x = bbox.left + event.pointer.DOM.x + 10;
-      y = bbox.top + event.pointer.DOM.y + 10;
-    } else {
-      x = event.pointer.DOM.x + 10;
-      y = event.pointer.DOM.y - 10;
-    }
-  } else if (event.event && event.event.clientX) {
-    x = event.event.clientX + 10;
-    y = event.event.clientY - 10;
-  } else {
-    x = event.clientX + 10;
-    y = event.clientY - 10;
-  }
-  
-
-  x += window.scrollX;
-  y += window.scrollY;
-  tooltip.style.left = x + 'px';
-  tooltip.style.top = y + 'px';
-}
-
-export function showCustomTooltip(event: any, text: string) {
-  hideCustomTooltip(); // Remove any existing tooltip
-  
-  const tooltip = document.createElement('div');
-  tooltip.id = 'custom-tooltip';
-  tooltip.style.cssText = `
-    position: absolute;
-    background: rgba(0, 0, 0, 0.8);
-    color: white;
-    padding: 8px 12px;
-    border-radius: 4px;
-    font-size: 12px;
-    font-family: monospace;
-    white-space: pre-line;
-    z-index: 1000;
-    pointer-events: none;
-    max-width: 300px;
-    border: 1px solid #444;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-  `;
-  
-  tooltip.textContent = text;
-  document.body.appendChild(tooltip);
-  moveTooltip(tooltip, event);
-}
-
-export function hideCustomTooltip() {
-  const existing = document.getElementById('custom-tooltip');
-  if (existing) {
-    existing.remove();
-    console.log('[DEBUG] Custom tooltip removed');
-  }
-}
-
-export function dragCustomTooltip(event : any) {
-  const existing = document.getElementById('custom-tooltip');
-  if (!existing) return;
-  moveTooltip(existing, event);
 }
 
 interface GraphRef {
@@ -492,9 +446,9 @@ function removeNodeFromView(graph: GraphRef, nodeId: string) {
 
 async function expandNodesFromDatabase(graph: GraphRef, nodeId: string) {
   const query = `
-    MATCH (start) 
-    WHERE id(start) = ${nodeId}
-    CALL apoc.path.expandConfig(start, {
+    MATCH (n) 
+    WHERE id(n) = ${nodeId}
+    CALL apoc.path.expandConfig(n, {
         relationshipFilter: 'DFG|EOG|AST|REFERS_TO|PDG|USAGE|SCOPE',
         minLevel: 1,
         maxLevel: 1,

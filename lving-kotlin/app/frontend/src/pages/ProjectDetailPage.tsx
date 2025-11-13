@@ -13,6 +13,7 @@ import {
   Button,
   Text,
   Textarea,
+  IconButton,
 } from "@chakra-ui/react";
 import { Select } from "chakra-react-select";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -23,6 +24,7 @@ import { GraphVisualization } from "../components/GraphVisualization";
 import { CodeStrings } from "../utils/codeHighlight"
 import { parseMetadata } from "../utils/metadata.ts"
 import { getCypherOptions, buildCypherQuery } from "../utils/queryGeneration.ts"
+import { ArrowLeftIcon, ArrowRightIcon, ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon } from '@chakra-ui/icons';
 
 interface Project {
   id: string;
@@ -50,6 +52,48 @@ interface GraphData {
     title: Record<string, string>;
   }>;
 }
+
+const directionIcons = {
+  "<": <ChevronLeftIcon />,
+  ">": <ChevronRightIcon />,
+  "<>": <Text fontWeight="bold">⇄</Text>,
+}
+
+const MVLabel = (props) => {
+  const { data, selectProps } = props;
+  const setDirection = selectProps.setDirection;
+
+  const handleClick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const next = data.direction === "<" ? ">": data.direction === ">" ? "<>": "<";
+    setDirection(data.value, next);
+  };
+
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  return (
+    <HStack spacing={1} align="center">
+      <IconButton
+        h="18px"
+        w="18px"
+        minW="18px"
+        p="0"
+        fontSize="12px"
+        tabIndex={-1}
+        colorScheme="blue"
+        icon={directionIcons[data.direction]}
+        aria-label="Direction"
+        onClick={handleClick}
+        onMouseDown={handleMouseDown}
+      />
+      <Text>{data.label}</Text>
+    </HStack>
+  );
+};
 
 const fetchProject = async (id: string): Promise<Project> => {
   const response = await axios.get(`/projects/${id}`);
@@ -84,7 +128,8 @@ const getStatusColor = (status: string) => {
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [cypherQuery, setCypherQuery] = useState('');
-  const [selectedExample, setSelectedExample] = useState([]);
+  const [selectedExample, setSelectedExample] = 
+    useState<{value: string, label: string, direction: string}[]>([]);
   const [selectedNode, setSelectedNode] = useState([]);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   var cypherOptions: { value: string, label: string }[] = [];
@@ -152,6 +197,11 @@ export function ProjectDetailPage() {
     setSelectedExample(value);
   };
 
+  const handleDirectionChange = (value: string, direction: string) => {
+    setSelectedExample((e) =>
+      e.map((p) => (p.value === value ? { ...p, direction: direction} : p)));
+  };
+
   useEffect(() => {
     if (selectedExample.length == 0 && selectedNode.length == 0) {
       setCypherQuery("");
@@ -204,7 +254,10 @@ export function ProjectDetailPage() {
 
   var nodeOptions: { value: string, label: string}[] = [];
   trackedNodes.forEach( n => {
-    nodeOptions.push({ value: n, label: n});
+    // At least for now, don't really care about argc or argv.
+    if (!n.startsWith("arg")) {
+      nodeOptions.push({ value: n, label: n});
+    }
   });
 
   // Set IR and Rust code values for CodeStrings
@@ -343,6 +396,7 @@ export function ProjectDetailPage() {
                       </Text>
                       <Select
                         isMulti
+                        closeMenuOnSelect={false}
                         value={selectedNode}
                         onChange={(e: any) => handleNodeChange(e)}
                         size="sm"
@@ -357,11 +411,14 @@ export function ProjectDetailPage() {
                       </Text>
                       <Select
                         isMulti
+                        closeMenuOnSelect={false}
                         value={selectedExample}
+                        setDirection={handleDirectionChange}
                         onChange={(e: any) => handleExampleChange(e)}
                         size="sm"
                         options={cypherOptions}
                         placeholder="Select a query example..."
+                        components= {{ MultiValueLabel: MVLabel }}
                       ></Select>
                   </Box>
                 </HStack>
@@ -381,6 +438,7 @@ export function ProjectDetailPage() {
                     height="120px"
                     bg="gray.50"
                     resize="vertical"
+                    spellCheck="false"
                   />
                   <Button
                     mt={2}

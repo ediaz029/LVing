@@ -12,7 +12,7 @@ const edges = [
   { value: 'USAGE|SCOPE', label: '🎯 Usage & Scope Relations' },
 ];
 
-type Option = { value: string; label: string };
+type Option = { value: string; label: string, direction: "<>" };
 
 /*
 * Returns array of { value: str, label: str} indicative of applicable edge and general query types.
@@ -22,7 +22,8 @@ export function getCypherOptions(): Option[] {
   edges.forEach(e => {
     cyphers.push({
         value: e.value,
-        label: e.label
+        label: e.label,
+        direction: "<>",
       }
     );
   });
@@ -45,7 +46,12 @@ export function buildCypherQuery(nodes: Option[], edges: Option[]): string | nul
   }
 
   // RELATIONSHIPS:
-  var relationshipFilter = edges.map(e => { return e.value; }).join("|");
+  var relationshipFilter = edges.map(e => { 
+    var dir: string = e.direction;
+    if (dir == "<>") dir = "";
+    return e.value + dir;
+  }).join("|");
+
   var procedure = `
 CALL apoc.path.expandConfig(n, {
   relationshipFilter: "${relationshipFilter}",
