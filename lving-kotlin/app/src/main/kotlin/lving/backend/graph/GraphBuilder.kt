@@ -41,6 +41,7 @@ import de.fraunhofer.aisec.cpg.graph.declarations.FunctionDeclaration
 import de.fraunhofer.aisec.cpg.graph.declarations.VariableDeclaration
 import de.fraunhofer.aisec.cpg.graph.edges.collections.EdgeCollection
 import de.fraunhofer.aisec.cpg.graph.nodes
+import de.fraunhofer.aisec.cpg.graph.scopes.FunctionScope
 import de.fraunhofer.aisec.cpg.graph.statements.expressions.CallExpression
 import de.fraunhofer.aisec.cpg.helpers.Benchmark
 import de.fraunhofer.aisec.cpg.helpers.IdentitySet
@@ -177,17 +178,25 @@ private fun List<Node>.persist(projectId: String): Map<Node, String> {
                     props["id"] = id
                     idMap[it] = id
 
-                    // XXX: This is specifically for the usability test.
+                    /*
+                    * just for the usability test / cypher generation
+                    * im 200% aware that this is not the most sane approach
+                    */
+
                     // the most rational thing is to do this in a proper pass.
-                    val name = Demangle.demangle(props.getOrDefault("name", "") as String);
+                    var name = Demangle.demangle(props.getOrDefault("name", "") as String);
+
+                    // Scope has ZERO information from within the graph
+                    // except the nodes that is encased within it.
+                    // ..but from a general expansion, that explodes.
+                    if (it is FunctionScope) {
+                        name = Demangle.demangle(it.astNode!!.name.localName);
+                    }
+
                     props["name"] = name;
                     props["fullName"] = name;
                     props["localName"] = name;
 
-                    /*
-                    * just for the usability test / cypher generation
-                    * im 100% aware that this is not the most sane approach
-                    */
                     if (it is FunctionDeclaration && !(FILTERED_DBG_DECLARE_FUNCS.any { s -> name.contains(s) })) {
                         // tag a node that is interesting:
                         // a node is interesting if it:

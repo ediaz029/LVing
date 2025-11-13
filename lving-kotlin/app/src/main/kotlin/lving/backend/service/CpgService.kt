@@ -167,6 +167,13 @@ class CpgService {
                     injected = true
                 }
             }
+
+            // If the user supplies their own predicate, we'll assume its just one line
+            // and attach on via AND.
+            if (!injected && line.trim().uppercase().startsWith("WHERE")) {
+                modifiedLines.add("AND n.projectId IS NOT NULL AND n.projectId = \$projectId")
+                injected = true
+            }
         }
 
         return modifiedLines.joinToString("\n")
