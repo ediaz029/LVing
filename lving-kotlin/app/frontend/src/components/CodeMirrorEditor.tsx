@@ -22,7 +22,7 @@ const markField = StateField.define({
       // insertion:
       if (effect.is(addMarks)) {
         const { from, to, id } = effect.value;
-        const builder = new RangeSetBuilder();
+        const builder = new RangeSetBuilder<Decoration>();
 
         const decos: { from: number; to: number; deco: Decoration }[] = [];
         value.between(0, tr.state.doc.length, (a, b, deco) => {
@@ -44,22 +44,22 @@ const markField = StateField.define({
           builder.add(d.from, d.from, d.deco);
         }
 
-        value = builder.finish();
+        return builder.finish();
       }
 
       // removal:
       if (effect.is(removeMarks)) {
         const { id } = effect.value;
-        const builder = new RangeSetBuilder();
+        const builder = new RangeSetBuilder<Decoration>();
         value.between(0, tr.state.doc.length, (a, b, deco) => {
           if (deco.spec && deco.spec.id !== id) {
             builder.add(a, b, deco);
           }
         });
-        value = builder.finish();
+        return builder.finish();
       }
     }
-    return value
+    return value;
   },
   provide: f => EditorView.decorations.from(f)
 })

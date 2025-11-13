@@ -35,15 +35,15 @@ interface GraphVisualizationProps {
     nodes: GraphNode[];
     edges: GraphEdge[];
   } | null;
-  project: number,
+  project: string | undefined,
   height?: string;
 }
 
 export function GraphVisualization({ data, project, height = '100%' }: GraphVisualizationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const networkRef = useRef<Network | null>(null);
-  const nodeRef = useRef(null);
-  const edgeRef = useRef(null);
+  const nodeRef = useRef<DataSet<any>>(new DataSet([]));
+  const edgeRef = useRef<DataSet<any>>(new DataSet([]));
   const [searchTerm, setSearchTerm] = useState('');
   const [originalData, setOriginalData] = useState<{ nodes: GraphNode[]; edges: GraphEdge[] } | null>(null);
   const [filteredData, setFilteredData] = useState<{ nodes: GraphNode[]; edges: GraphEdge[] } | null>(null);
@@ -283,7 +283,7 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
 
     // Add event listeners
     network.on('hoverNode', (params) => {
-      const node = (nodeRef.current!!).get(params.node);
+      const node: any = (nodeRef.current!!).get(params.node);
       if (!node) return;
 
       console.log('[DEBUG] Hovering over node:', node);
@@ -297,8 +297,8 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
     network.on("showPopup", (params) => {
       const tooltip = document.querySelector(".vis-tooltip");
       if (tooltip) {
-        const node = (nodeRef.current!!).get(params);
-        const edge = (edgeRef.current!!).get(params);
+        const node: any = (nodeRef.current!!).get(params);
+        const edge: any = (edgeRef.current!!).get(params);
         if (node) {
           tooltip.innerHTML = node.title;
         } else {

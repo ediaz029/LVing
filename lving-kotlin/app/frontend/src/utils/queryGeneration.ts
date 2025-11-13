@@ -1,8 +1,3 @@
-// "special edges options" IE: something that is NOT an edge, but is within that same select component.
-const specialSelection = [
-  { value: "", label: "" },
-];
-
 const edges = [
   { value: "DFG", label: "📊 Data Flow Graph (DFG)"},
   { value: 'EOG', label: '🔄 Execution Order Graph (EOG)' },
@@ -12,7 +7,7 @@ const edges = [
   { value: 'USAGE|SCOPE', label: '🎯 Usage & Scope Relations' },
 ];
 
-type Option = { value: string; label: string, direction: "<>" };
+export type Option = { value: string, label: string, direction: "<" | ">" | "<>" };
 
 /*
 * Returns array of { value: str, label: str} indicative of applicable edge and general query types.

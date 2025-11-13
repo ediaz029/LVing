@@ -218,6 +218,7 @@ export function NewProjectPage() {
                         overflow="hidden"
                       >
                         <CodeMirrorEditor
+                          name=""
                           value={sourceCode}
                           onChange={setSourceCode}
                           readOnly={false}

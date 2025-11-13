@@ -23,8 +23,8 @@ import { CodeMirrorEditor } from "../components/CodeMirrorEditor";
 import { GraphVisualization } from "../components/GraphVisualization";
 import { CodeStrings } from "../utils/codeHighlight"
 import { parseMetadata } from "../utils/metadata.ts"
-import { getCypherOptions, buildCypherQuery } from "../utils/queryGeneration.ts"
-import { ArrowLeftIcon, ArrowRightIcon, ChevronLeftIcon, ChevronRightIcon, ChevronUpIcon } from '@chakra-ui/icons';
+import { getCypherOptions, buildCypherQuery, type Option } from "../utils/queryGeneration.ts"
+import { ChevronLeftIcon, ChevronRightIcon } from '@chakra-ui/icons';
 
 interface Project {
   id: string;
@@ -52,25 +52,25 @@ interface GraphData {
     title: Record<string, string>;
   }>;
 }
-
+type Direction = "<" | ">" | "<>";
 const directionIcons = {
   "<": <ChevronLeftIcon />,
   ">": <ChevronRightIcon />,
   "<>": <Text fontWeight="bold">⇄</Text>,
 }
 
-const MVLabel = (props) => {
+const MVLabel = (props: any) => {
   const { data, selectProps } = props;
   const setDirection = selectProps.setDirection;
 
-  const handleClick = (e) => {
+  const handleClick = (e: any) => {
     e.preventDefault();
     e.stopPropagation();
-    const next = data.direction === "<" ? ">": data.direction === ">" ? "<>": "<";
+    const next: Direction = data.direction === "<" ? ">" : data.direction === ">" ? "<>" : "<";
     setDirection(data.value, next);
   };
 
-  const handleMouseDown = (e) => {
+  const handleMouseDown = (e: any) => {
     e.preventDefault();
     e.stopPropagation();
   };
@@ -85,7 +85,7 @@ const MVLabel = (props) => {
         fontSize="12px"
         tabIndex={-1}
         colorScheme="blue"
-        icon={directionIcons[data.direction]}
+        icon={directionIcons[data.direction as Direction]}
         aria-label="Direction"
         onClick={handleClick}
         onMouseDown={handleMouseDown}
@@ -128,8 +128,7 @@ const getStatusColor = (status: string) => {
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [cypherQuery, setCypherQuery] = useState('');
-  const [selectedExample, setSelectedExample] = 
-    useState<{value: string, label: string, direction: string}[]>([]);
+  const [selectedExample, setSelectedExample] = useState<Option[]>([]);
   const [selectedNode, setSelectedNode] = useState([]);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
   var cypherOptions: { value: string, label: string }[] = [];
@@ -197,9 +196,9 @@ export function ProjectDetailPage() {
     setSelectedExample(value);
   };
 
-  const handleDirectionChange = (value: string, direction: string) => {
+  const handleDirectionChange = (value: string, direction: Direction) => {
     setSelectedExample((e) =>
-      e.map((p) => (p.value === value ? { ...p, direction: direction} : p)));
+      e.map((p): Option => (p.value === value ? { ...p, direction } : p)));
   };
 
   useEffect(() => {
@@ -413,7 +412,7 @@ export function ProjectDetailPage() {
                         isMulti
                         closeMenuOnSelect={false}
                         value={selectedExample}
-                        setDirection={handleDirectionChange}
+                        {...({ setDirection: handleDirectionChange } as any)}
                         onChange={(e: any) => handleExampleChange(e)}
                         size="sm"
                         options={cypherOptions}

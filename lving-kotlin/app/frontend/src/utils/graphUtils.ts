@@ -305,7 +305,7 @@ export function filterGraphData(
 interface GraphRef {
   nodes: DataSet<GraphNode>,
   edges: DataSet<GraphEdge>,
-  projectId: number,
+  projectId: string,
 }
 
 export function showContextMenu(
