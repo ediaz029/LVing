@@ -155,7 +155,6 @@ export function ProjectDetailPage() {
     queryKey: ["sourceCode", id],
     queryFn: async () => {
       const response = await axios.get(`/projects/${id}/source`);
-      CodeStrings.IR_CODE = response.data;
       return response.data;
     },
     enabled: !!id,
@@ -165,8 +164,6 @@ export function ProjectDetailPage() {
     queryKey: ["llvmIr", id],
     queryFn: async () => {
       const response = await axios.get(`/projects/${id}/llvm-ir`);
-      CodeStrings.RUST_CODE = response.data;
-      parseMetadata(response.data);
       return response.data;
     },
     enabled: !!id && !!project?.llvmIrPath,
@@ -262,6 +259,7 @@ export function ProjectDetailPage() {
   // Set IR and Rust code values for CodeStrings
   CodeStrings.RUST_CODE = sourceCode;
   CodeStrings.IR_CODE = llvmIr;
+  parseMetadata(llvmIr);
 
   return (
     <Box bg="gray.50" minH="calc(100vh - 72px)">

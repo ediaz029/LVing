@@ -21,6 +21,7 @@ export function highlightCorrespondingCode(nodeId: string, code: string) {
     * or update each node's code property. Both of which would require
     * updating the CPG's language frontend for LLVM.
     */
+    console.debug(code);
     const getLineNumber = (i: number, s: string) => {
         return s.substring(0, i).split("\n").length;
     }
@@ -32,9 +33,11 @@ export function highlightCorrespondingCode(nodeId: string, code: string) {
     // Not trusting !dbg's number at all for IR lookup.
     const codeSplit = code.split("!dbg ")
     const text = codeSplit[0]
+    console.debug(text);
 
     var lineStart = CodeStrings.IR_CODE.indexOf(text);
     var lineEnd = lineStart + text.length - 1;
+    console.debug(lineStart, lineEnd, CodeStrings.IR_CODE.length);
     console.debug(getLineNumber(lineStart, CodeStrings.IR_CODE), "->", getLineNumber(lineEnd, CodeStrings.IR_CODE));
 
     // IR Highlight:
@@ -51,7 +54,19 @@ export function highlightCorrespondingCode(nodeId: string, code: string) {
 
     // For the Rust highlight, we need to derive the real dbgId from the IR text, not the node's code.
     // Since it is confirmed by this point we have !dbg, we split by ! and grab the final entry.
-    const irLine = CodeStrings.IR_CODE.substring(lineStart, lineStart + code.length);
+    
+    // unfortunately we can't trust code.length, but we are certain text.length + 5
+    // is the space right before the dbgid.
+    var end = lineStart + text.length + 5;
+
+    // so i just sort of walk this, but optimally this whole ordeal is fixed in the cpg itself
+    for (var i = 0; i < 6; i++) {
+        const c = CodeStrings.IR_CODE.charAt(end);
+        if (c == "\n") break;
+        end++;
+    }
+
+    var irLine = CodeStrings.IR_CODE.substring(lineStart, end);
     const irLineSplit = irLine.split("!")
     const dbgID = '!' + irLineSplit[irLineSplit.length-1].trim();
 
@@ -63,8 +78,10 @@ export function highlightCorrespondingCode(nodeId: string, code: string) {
     if (!["DILocation", "DILocalVariable"].includes(metadata.identifier)) return;
 
     var info : RustLocInfo | null = null;
-    var filename : string | undefined;
-    var locationKey : string | undefined;
+    var filename : string | null;
+    var locationKey : string | null;
+
+    console.debug(metadata.identifier);
 
     // For DILocalVariable, the properties has file and line already.
     if (metadata.identifier === "DILocalVariable") {
@@ -88,8 +105,7 @@ export function highlightCorrespondingCode(nodeId: string, code: string) {
     }
 
     // Only interested in highlighting main right now:
-    console.log(locationKey);
-    if (!pointsToMainEntry(locationKey)) return;
+    if (!pointsToMainEntry(locationKey) && filename == null) return;
 
     // Rust highlight:
     highlight(
@@ -99,7 +115,6 @@ export function highlightCorrespondingCode(nodeId: string, code: string) {
         parseInt(info.line),
     );
     scrollIntoView(rustView, parseInt(info.line));
-    console.log(info);
 }
 
 /*

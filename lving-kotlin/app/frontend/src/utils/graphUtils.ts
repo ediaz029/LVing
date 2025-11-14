@@ -43,26 +43,33 @@ export function getNodeDisplayName(node: GraphNode): string {
   return displayName;
 }
 
+function anyIncludes(arr: string[], match: string | string[]): boolean {
+  const loweredArr = arr.map(e => { return e.toLowerCase(); });
+  return loweredArr.some(e => {
+    if (typeof match == "string") {
+      return e.includes(match);
+    }
+    return match.some(m => { return e.includes(m); });
+  });
+}
+
 // Node shape based on type
 export function getNodeShape(node: GraphNode): string {
-  const label = node.label?.toLowerCase() || '';
-  if (label.includes('function') || label.includes('method')) return 'box';
-  if (label.includes('variable') || label.includes('declaration')) return 'circle';
-  if (label.includes('operator')) return 'diamond';
-  if (label.includes('literal')) return 'triangle';
+  if (anyIncludes(node.labels, ['function', 'method'])) return 'box';
+  if (anyIncludes(node.labels, ['variable', 'declaration'])) return 'circle';
+  if (anyIncludes(node.labels, 'operator')) return 'diamond';
+  if (anyIncludes(node.labels, 'literal')) return 'triangle';
   if (node.labels.includes('CallExpression')) return 'triangleDown';
   return 'dot'; // default
 }
 
 // Node color based on type and properties
 export function getNodeColor(node: GraphNode): { background: string; border: string } {
-  const label = node.label?.toLowerCase() || '';
-  
   // Color by node type
-  if (label.includes('function')) return { background: '#28a745', border: '#fff' };
-  if (label.includes('variable')) return { background: '#007acc', border: '#fff' };
-  if (label.includes('operator')) return { background: '#ffc107', border: '#fff' };
-  if (label.includes('literal')) return { background: '#6f42c1', border: '#fff' };
+  if (anyIncludes(node.labels, ['function', 'method'])) return { background: '#28a745', border: '#fff' };
+  if (anyIncludes(node.labels, ['variable', 'declaration'])) return { background: '#007acc', border: '#fff' };
+  if (anyIncludes(node.labels, 'operator')) return { background: '#ffc107', border: '#fff' };
+  if (anyIncludes(node.labels, 'literal')) return { background: '#6f42c1', border: '#fff' };
   
   // Check for unsafe or risky properties
   const titleString = JSON.stringify(node.title || {}).toLowerCase();
@@ -71,7 +78,7 @@ export function getNodeColor(node: GraphNode): { background: string; border: str
   }
 
   if (titleString.includes('drop')) {
-    return { background: '#e66726', border: '#fff' }; 
+    return { background: '#dc3545', border: '#fff' }; 
   }
 
   return { background: '#007acc', border: '#fff' }; // Default blue

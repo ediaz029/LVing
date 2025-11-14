@@ -50,7 +50,7 @@ export function parseMetadata(code: string) {
         }
         metadataMap.set(key, metadata);
     }
-    console.log(metadataMap);
+    console.debug(metadataMap);
 }
 
 export function getMetadata(id: string) : Metadata | undefined {
