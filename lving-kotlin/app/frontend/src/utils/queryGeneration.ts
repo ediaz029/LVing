@@ -1,3 +1,5 @@
+import { getQueryCandidates } from "./queryExamples.ts";
+
 const edges = [
   { value: "DFG", label: "📊 Data Flow Graph (DFG)"},
   { value: 'EOG', label: '🔄 Execution Order Graph (EOG)' },
@@ -7,28 +9,46 @@ const edges = [
   { value: 'USAGE|SCOPE', label: '🎯 Usage & Scope Relations' },
 ];
 
-export type Option = { value: string, label: string, direction: "<" | ">" | "<>" };
+export type OptionGroup = { value: string, label: string, direction: "<" | ">" | "<>", allow: string };
+export type Options = { label: string, options: OptionGroup[], allow: "single" | "multi"}[];
 
 /*
 * Returns array of { value: str, label: str} indicative of applicable edge and general query types.
 */
-export function getCypherOptions(): Option[] {
-  var cyphers: Option[] = [];
+export function getCypherOptions(): Options {
+  var options : Options = [
+    {label: "Suggested Queries (Select 1)", options: [], allow: "single"}, 
+    {label: "Relationships (Select 1+)", options: [], allow: "multi"},
+  ];
+
+  var suggestions = getQueryCandidates("test.rs");
+  suggestions.forEach(e => {
+    options[0].options.push({ value: e.cypher, label: e.label, direction: "<>", allow: "" })
+  });
+
+
+  var cyphers: OptionGroup[] = [];
   edges.forEach(e => {
     cyphers.push({
         value: e.value,
         label: e.label,
         direction: "<>",
+        allow: "",
       }
     );
   });
-  return cyphers;
+  options[1].options = cyphers;
+
+  options.forEach(e => {
+    e.options = e.options.map(g => ({...g, allow: e.allow}))
+  });
+  return options;
 }
 
 /*
 * Given the currently selected nodes and edges, build a Cypher query.
 */
-export function buildCypherQuery(nodes: Option[], edges: Option[]): string | null {
+export function buildCypherQuery(nodes: OptionGroup[], edges: OptionGroup[]): string | null {
   if (nodes.length == 0 && edges.length == 0) return null;
 
   // NODES:

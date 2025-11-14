@@ -13,7 +13,9 @@ interface EntryInfo {
 const metadataMap = new Map<string, Metadata>();
 var mainEntryInfo : EntryInfo;
 
-export function parseMetadata(code: string) {
+export function parseMetadata(code: string | undefined) {
+    if (code == undefined) return;
+
     const metadataPattern = new RegExp(/(!\d*) = (?:distinct )?!(\w*)\((.*?)\)$/, "gm");
     const metaPropertyPattern = new RegExp(/(\w+): (?:"([^"]*)"|([^,)]*))/, "gm");
     

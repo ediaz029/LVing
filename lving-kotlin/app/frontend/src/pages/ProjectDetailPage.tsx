@@ -14,8 +14,9 @@ import {
   Text,
   Textarea,
   IconButton,
+  Flex,
 } from "@chakra-ui/react";
-import { Select } from "chakra-react-select";
+import { Select, components } from "chakra-react-select";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
 import axios from "axios";
@@ -23,7 +24,7 @@ import { CodeMirrorEditor } from "../components/CodeMirrorEditor";
 import { GraphVisualization } from "../components/GraphVisualization";
 import { CodeStrings } from "../utils/codeHighlight"
 import { parseMetadata } from "../utils/metadata.ts"
-import { getCypherOptions, buildCypherQuery, type Option } from "../utils/queryGeneration.ts"
+import { getCypherOptions, buildCypherQuery, type Option, type OptionGroup } from "../utils/queryGeneration.ts"
 import { ChevronLeftIcon, ChevronRightIcon } from '@chakra-ui/icons';
 
 interface Project {
@@ -52,6 +53,20 @@ interface GraphData {
     title: Record<string, string>;
   }>;
 }
+
+const MVSOpt = (props: any) => {
+  const { data } = props;
+
+  return (
+    <components.Option {...props}>
+      <Flex align="center" gap={2}>
+        <Box>{ data.label } </Box>
+      </Flex>
+    </components.Option>
+  )
+
+}
+
 type Direction = "<" | ">" | "<>";
 const directionIcons = {
   "<": <ChevronLeftIcon />,
@@ -62,6 +77,7 @@ const directionIcons = {
 const MVLabel = (props: any) => {
   const { data, selectProps } = props;
   const setDirection = selectProps.setDirection;
+  if (data.allow === "single") return <components.MultiValueLabel {...props } />;
 
   const handleClick = (e: any) => {
     e.preventDefault();
@@ -131,7 +147,6 @@ export function ProjectDetailPage() {
   const [selectedExample, setSelectedExample] = useState<Option[]>([]);
   const [selectedNode, setSelectedNode] = useState([]);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
-  var cypherOptions: { value: string, label: string }[] = [];
 
   const { data: project, isLoading, error, refetch } = useQuery<Project>({
     queryKey: ["project", id],
@@ -199,14 +214,21 @@ export function ProjectDetailPage() {
   };
 
   useEffect(() => {
-    if (selectedExample.length == 0 && selectedNode.length == 0) {
+    if (selectedExample.length == 0 || selectedNode.length == 0) {
       setCypherQuery("");
+      return;
+    }
+
+    if (selectedExample[0].allow === "single") {
+      setCypherQuery(selectedExample[0].value);
       return;
     }
 
     const query = buildCypherQuery(selectedNode, selectedExample);
     if (query) setCypherQuery(query);
   }, [selectedExample, selectedNode]);
+
+  const isSingleSelected = selectedExample.some(e => e.allow === "single");
 
   const handleRunQuery = () => {
     if (cypherQuery.trim()) {
@@ -246,13 +268,30 @@ export function ProjectDetailPage() {
   if (project.trackedNodes == null) { project.trackedNodes = ""; }
   var trackedNodes = project.trackedNodes.split(',');
   trackedNodes = trackedNodes.map( n => { return n.trim(); });
-  cypherOptions = getCypherOptions();
+  var cypherOptions = getCypherOptions();
+
+  const filteredCypherOptions = cypherOptions.map(group => {
+    const hasSingleSelected = selectedExample.some(e => e.allow === "single");
+    const hasMultiSelected = selectedExample.some(e => e.allow === "multi");
+    return {
+      ...group,
+      options: group.options.map(opt => ({
+        ...opt,
+        isDisabled:
+          (hasSingleSelected && opt.allow === "multi") ||
+          (hasMultiSelected && opt.allow === "single"),
+      })),
+    };
+  });
 
   var nodeOptions: { value: string, label: string}[] = [];
+  const set = new Set<string>();
   trackedNodes.forEach( n => {
+    if (set.has(n)) return;
     // At least for now, don't really care about argc or argv.
     if (!n.startsWith("arg")) {
       nodeOptions.push({ value: n, label: n});
+      set.add(n);
     }
   });
 
@@ -399,6 +438,7 @@ export function ProjectDetailPage() {
                         size="sm"
                         placeholder="Select a node..."
                         options={nodeOptions}
+                        isDisabled={isSingleSelected}
                       ></Select>
                   </Box>
 
@@ -413,9 +453,9 @@ export function ProjectDetailPage() {
                         {...({ setDirection: handleDirectionChange } as any)}
                         onChange={(e: any) => handleExampleChange(e)}
                         size="sm"
-                        options={cypherOptions}
+                        options={filteredCypherOptions}
                         placeholder="Select a query example..."
-                        components= {{ MultiValueLabel: MVLabel }}
+                        components= {{ MultiValueLabel: MVLabel, Option: MVSOpt }}
                       ></Select>
                   </Box>
                 </HStack>
