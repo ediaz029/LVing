@@ -4,24 +4,279 @@ export interface Query {
 }
 
 const CYPHER_EXAMPLES: Record<string, Query[]> = {
-  "test.rs": [
+  "004_RawData.rs": [
     {
       label: "default",
-      cypher: `MATCH (v:ValueDeclaration)
-WHERE v.code CONTAINS 'sendable_ptr'
-WITH v
-MATCH path = (v)-[:DFG|EOG|AST|REFERS_TO|PDG|USAGE|SCOPE*1..6]-(access)
-WHERE (access:BinaryOperator OR access:UnaryOperator)
-RETURN path`,
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["ptr2", "ptr1"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "DFG",
+  minLevel: 1,
+  maxLevel: 7,
+  dfs: true
+})
+YIELD path
+RETURN path`
     },
+  ],
+  "003_AtomicThread.rs": [
     {
-      label: "second",
-      cypher: `MATCH (v:ValueDeclaration)
-WHERE v.code CONTAINS 'sendable_ptr'
-WITH v
-MATCH path = (v)-[:DFG|EOG|AST|REFERS_TO|PDG|USAGE|SCOPE*1..6]-(access)
-WHERE (access:BinaryOperator OR access:UnaryOperator)
-RETURN path`,
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["atomic_ptr", "ptr.dbg.spill"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "REFERS_TO<|EOG>|DFG>",
+  minLevel: 1,
+  maxLevel: 3
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "018_ThreadSwap.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n:TrackedVariable)
+WHERE n.name IN ["ptr", "vec2", "x.dbg.spill"]
+WITH collect(n) AS nodes
+
+UNWIND range(0, size(nodes)-1) AS i
+UNWIND range(i+1, size(nodes)-1) AS j
+
+WITH nodes[i] AS a, nodes[j] AS b
+CALL apoc.algo.dijkstra(
+  a, b,
+  "DFG>|<AST|EOG>",
+  "1"
+) YIELD path
+RETURN a.name AS from, b.name AS to, path;`
+    },
+  ],
+  "006_SharedBufferX.rs": [
+    {
+      label: "default",
+      cypher: ``
+    },
+  ],
+  "001_PointerThread.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["ptr1", "ptr2"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "DFG",
+  minLevel: 1,
+  maxLevel: 4
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "009_HeapThreadA.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n:TrackedVariable)
+WHERE n.name IN ["sendable_ptr", "boxed", "value.dbg.spill"]
+WITH collect(n) AS nodes
+
+UNWIND range(0, size(nodes)-1) AS i
+UNWIND range(i+1, size(nodes)-1) AS j
+
+WITH nodes[i] AS a, nodes[j] AS b
+CALL apoc.algo.dijkstra(
+  a, b,
+  "DFG>|<AST|EOG>",
+  "1"
+) YIELD path
+RETURN a.name AS from, b.name AS to, path;`
+    },
+  ],
+  "010_HeapThreadX.rs": [
+    {
+      label: "default",
+      cypher: ``
+    },
+  ],
+  "014_Swap.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["s2", "s1"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "<REFERS_TO|EOG>",
+  minLevel: 1,
+  maxLevel: 2
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "017_VecExtend.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["vec"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "DFG>|EOG>",
+  minLevel: 1,
+  maxLevel: 2
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "020_VecThreadRaw.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["vec_main"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "EOG>|REFERS_TO",
+  minLevel: 1,
+  maxLevel: 5
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "019_DropTrait.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["_3", "resource"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "DFG>|EOG>",
+  minLevel: 1,
+  maxLevel: 7
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "008_StringSlice.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["s", "x.dbg.spill"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "DFG",
+  minLevel: 1,
+  maxLevel: 3
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "005_DeallocThread.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["ptr1", "ptr2"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "DFG",
+  minLevel: 1,
+  maxLevel: 4
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "013_WeakArc.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["arc", "weak"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "EOG>|REFERS_TO<|DFG>",
+  minLevel: 1,
+  maxLevel: 3
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "007_StringAllocation.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["s"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "DFG>|EOG>",
+  minLevel: 1,
+  maxLevel: 2
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "016_PhantomData.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["wrapper"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "EOG>|REFERS_TO<",
+  minLevel: 1,
+  maxLevel: 3
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "015_ReadWrite.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["data"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "REFERS_TO<|EOG>",
+  minLevel: 1,
+  maxLevel: 2
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "012_LifetimeElision.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["x"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "DFG|EOG>",
+  minLevel: 1,
+  maxLevel: 3
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "002_CellThread.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["ptr1", "ptr2"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "DFG",
+  minLevel: 1,
+  maxLevel: 4
+})
+YIELD path
+RETURN path`
+    },
+  ],
+  "011_DynTrait.rs": [
+    {
+      label: "default",
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["x.dbg.spill", "animal", "dog"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "EOG>|REFERS_TO<|AST<",
+  minLevel: 1,
+  maxLevel: 3
+})
+YIELD path
+RETURN path`
     },
   ],
 };

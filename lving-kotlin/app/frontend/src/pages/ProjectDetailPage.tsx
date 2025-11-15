@@ -24,7 +24,7 @@ import { CodeMirrorEditor } from "../components/CodeMirrorEditor";
 import { GraphVisualization } from "../components/GraphVisualization";
 import { CodeStrings } from "../utils/codeHighlight"
 import { parseMetadata } from "../utils/metadata.ts"
-import { getCypherOptions, buildCypherQuery, type Option, type OptionGroup } from "../utils/queryGeneration.ts"
+import { getCypherOptions, buildCypherQuery, type OptionGroup } from "../utils/queryGeneration.ts"
 import { ChevronLeftIcon, ChevronRightIcon } from '@chakra-ui/icons';
 
 interface Project {
@@ -59,9 +59,7 @@ const MVSOpt = (props: any) => {
 
   return (
     <components.Option {...props}>
-      <Flex align="center" gap={2}>
-        <Box>{ data.label } </Box>
-      </Flex>
+        <Box fontSize="0.8rem" lineHeight="0.6">{ data.label } </Box>
     </components.Option>
   )
 
@@ -144,7 +142,7 @@ const getStatusColor = (status: string) => {
 export function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [cypherQuery, setCypherQuery] = useState('');
-  const [selectedExample, setSelectedExample] = useState<Option[]>([]);
+  const [selectedExample, setSelectedExample] = useState<OptionGroup[]>([]);
   const [selectedNode, setSelectedNode] = useState([]);
   const [graphData, setGraphData] = useState<GraphData | null>(null);
 
@@ -210,7 +208,7 @@ export function ProjectDetailPage() {
 
   const handleDirectionChange = (value: string, direction: Direction) => {
     setSelectedExample((e) =>
-      e.map((p): Option => (p.value === value ? { ...p, direction } : p)));
+      e.map((p): OptionGroup => (p.value === value ? { ...p, direction } : p)));
   };
 
   useEffect(() => {
