@@ -28,7 +28,9 @@ import {
   showContextMenu,
   hideContextMenu,
 } from '../utils/graphUtils';
+import type { OptionGroup } from "../utils/queryGeneration.ts"
 import { highlightCorrespondingCode, removeHighlightNode } from '../utils/codeHighlight'
+import { FaSearch } from 'react-icons/fa';
 
 interface GraphVisualizationProps {
   data: {
@@ -36,10 +38,11 @@ interface GraphVisualizationProps {
     edges: GraphEdge[];
   } | null;
   project: string | undefined,
+  tracked: OptionGroup[],
   height?: string;
 }
 
-export function GraphVisualization({ data, project, height = '100%' }: GraphVisualizationProps) {
+export function GraphVisualization({ data, project, tracked, height = '100%' }: GraphVisualizationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const networkRef = useRef<Network | null>(null);
   const nodeRef = useRef<DataSet<any>>(new DataSet([]));
@@ -318,15 +321,12 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
     // Context menu:
     network.on('oncontext', (params) => {
       params.event.preventDefault();
-      if (params.nodes.length > 0) {
-        showContextMenu(
-          params, 
-          {nodes: nodeRef.current!!, edges: edgeRef.current!!, projectId: project!!},
-          network);
-      } else {
-        hideContextMenu();
-      }
-    })
+      showContextMenu(
+        params, 
+        {nodes: nodeRef.current!!, edges: edgeRef.current!!, projectId: project!!},
+        network,
+        params.nodes.length > 0 ? "node" : "canvas");
+    });
 
     // Canvas click:
     network.on("click", function (_) {
@@ -541,7 +541,7 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
             fontSize="12px"
             p={1}
           >
-            ⊡
+            <FaSearch />
           </Button>
         </VStack>
       </Box>

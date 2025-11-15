@@ -14,7 +14,6 @@ import {
   Text,
   Textarea,
   IconButton,
-  Flex,
 } from "@chakra-ui/react";
 import { Select, components } from "chakra-react-select";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -212,13 +211,18 @@ export function ProjectDetailPage() {
   };
 
   useEffect(() => {
-    if (selectedExample.length == 0 || selectedNode.length == 0) {
+    if (selectedExample.length == 0) {
       setCypherQuery("");
       return;
     }
 
     if (selectedExample[0].allow === "single") {
       setCypherQuery(selectedExample[0].value);
+      return;
+    }
+
+    if (selectedNode.length == 0) {
+      setCypherQuery("");
       return;
     }
 
@@ -266,7 +270,7 @@ export function ProjectDetailPage() {
   if (project.trackedNodes == null) { project.trackedNodes = ""; }
   var trackedNodes = project.trackedNodes.split(',');
   trackedNodes = trackedNodes.map( n => { return n.trim(); });
-  var cypherOptions = getCypherOptions();
+  var cypherOptions = getCypherOptions(project.name);
 
   const filteredCypherOptions = cypherOptions.map(group => {
     const hasSingleSelected = selectedExample.some(e => e.allow === "single");
@@ -503,7 +507,7 @@ export function ProjectDetailPage() {
                       </Box>
                     </Alert>
                   ) : graphData && (graphData.nodes.length > 0 || graphData.edges.length > 0) ? (
-                    <GraphVisualization data={graphData} project={id} height="650px" />
+                    <GraphVisualization data={graphData} project={id} tracked={selectedNode} height="650px" />
                   ) : (
                     <Box textAlign="center" py={10} color="gray.500" bg="gray.50" borderRadius="md">
                       <Text fontSize="md" fontWeight="medium" mb={2}>📊 Graph Visualization</Text>

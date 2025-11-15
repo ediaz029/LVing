@@ -23,12 +23,14 @@ export function getNodeDisplayName(node: GraphNode): string {
   const MAX_LABEL_LENGTH = 20; // Truncate all labels to this length
   
   let displayName = '';
+
+  const refenceLabel = anyIncludes(node.labels, "reference") ? "\n(ref)" : ""
   
-  // Priority order: name > fullName > code (truncated) > label (type)
+  // Priority order: name > fullName > "reference" > code (truncated) > label (type)
   if (node.title.name) {
-    displayName = node.title.name;
+    displayName = node.title.name + refenceLabel;
   } else if (node.title.fullName) {
-    displayName = node.title.fullName;
+    displayName = node.title.fullName + refenceLabel;
   } else if (node.title.code) {
     displayName = node.title.code;
   } else {
@@ -68,6 +70,7 @@ export function getNodeColor(node: GraphNode): { background: string; border: str
   // Color by node type
   if (anyIncludes(node.labels, ['function', 'method'])) return { background: '#28a745', border: '#fff' };
   if (anyIncludes(node.labels, ['variable', 'declaration'])) return { background: '#007acc', border: '#fff' };
+  if (anyIncludes(node.labels, ['reference'])) return { background: '#F57F50', border: '#fff' };
   if (anyIncludes(node.labels, 'operator')) return { background: '#ffc107', border: '#fff' };
   if (anyIncludes(node.labels, 'literal')) return { background: '#6f42c1', border: '#fff' };
   
@@ -319,6 +322,7 @@ export function showContextMenu(
   event: any,
   graph: GraphRef,
   network: Network,
+  mode: "node" | "canvas",
 ) {
   hideContextMenu();
   const nodeId = event.nodes[0];
@@ -340,44 +344,55 @@ export function showContextMenu(
     backdrop-filter: blur(5px);
   `;
 
-  const menuItems = [
-    {
-      label: `📈 Expand from Database`,
-      action: () => expandNodesFromDatabase(graph, nodeId),
-      enabled: true,
-    },
-    // XXX: i dont recall how this differs from expand from db
-    // {
-    //   label: '👁️ Expand All Connected',
-    //   action: () => expandAllConnected(nodeId),
-    //   enabled: true
-    // },
-    {
-      label: '🗑️ Remove from View',
-      action: () => removeNodeFromView(graph, nodeId),
-      enabled: true,
-      color: '#dc3545'
-    },
-    {
-      label: '🔍 Focus on Node',
-      action: () => focusOnNode(nodeId, network),
-      enabled: true
-    },
-    { separator: true },
-    {
-      label: `📋 Copy Node ID (${nodeId})`,
-      action: () => copyToClipboard(nodeId),
-      enabled: true
-    },
-    // {
-    //   label: '🔧 Debug Node Info',
-    //   action: () => showNodeDebugInfo(nodeId),
-    //   enabled: true,
-    //   color: '#17a2b8'
-    // }
-  ];
+  var menuItems: any = []
+  if (mode == "node") {
+    menuItems = [
+      {
+        label: `📈 Expand from Database`,
+        action: () => expandNodesFromDatabase(graph, nodeId),
+        enabled: true,
+      },
+      // XXX: i dont recall how this differs from expand from db
+      // {
+      //   label: '👁️ Expand All Connected',
+      //   action: () => expandAllConnected(nodeId),
+      //   enabled: true
+      // },
+      {
+        label: '🗑️ Remove from View',
+        action: () => removeNodeFromView(graph, nodeId),
+        enabled: true,
+        color: '#dc3545'
+      },
+      {
+        label: '🔍 Focus on Node',
+        action: () => focusOnNode(nodeId, network),
+        enabled: true
+      },
+      { separator: true },
+      {
+        label: `📋 Copy Node ID (${nodeId})`,
+        action: () => copyToClipboard(nodeId),
+        enabled: true
+      },
+      // {
+      //   label: '🔧 Debug Node Info',
+      //   action: () => showNodeDebugInfo(nodeId),
+      //   enabled: true,
+      //   color: '#17a2b8'
+      // }
+    ];
+  } else if (mode == "canvas") {
+    menuItems = [
+      {
+        label: '🔍 Highlight Tracked Nodes',
+        action: () => highlightTrackedNodes(graph),
+        enabled: true
+      }
+    ];
+  }
 
-  menuItems.forEach(item => {
+    menuItems.forEach((item: any) => {
     if (item.separator) {
       const separator = document.createElement('div');
       separator.style.cssText = 'height: 1px; background: #666; margin: 4px 8px;';
@@ -566,6 +581,44 @@ function copyToClipboard(text: string) {
     document.body.removeChild(textArea);
     showTemporaryMessage('Node ID copied to clipboard!');
   }
+}
+
+export function getTrackedNodes(graph: GraphRef): any {
+  return graph.nodes.get().filter((n: any) => {
+    return n.rawLabels.includes("TrackedVariable");
+  });
+}
+
+function highlightTrackedNodes(graph: any) {
+  const trackedNodes = getTrackedNodes(graph);
+  const pulseNode = (n: any) => {
+    graph.nodes.update({
+      id: n.id,
+      borderWidth: 5,
+      shape: "dot",
+      size: 75,
+      color: { border: '#fff', background: '#EE4B2B' },
+    });
+      setTimeout(() => {
+        graph.nodes.update({
+          id: n.id,
+          shape: "circle",
+          borderWidth: 3,
+          color: n.color,
+        })
+      }, 500);
+  };
+
+  trackedNodes.forEach((n: any) => {
+    pulseNode(n);
+    var i = 0;
+    const ival = setInterval(() => {
+      pulseNode(n);
+      i++;
+      if (i >= 5) clearInterval(ival);
+    }, 1000);
+
+  });
 }
 
 function showTemporaryMessage(message: string) {

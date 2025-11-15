@@ -127,10 +127,15 @@ class CpgService {
             driver.session().use { session ->
                 return session.readTransaction { tx ->
                     // Inject projectId filter into the query
-                    val modifiedQuery = injectProjectIdFilter(cypherQuery, projectId)
+                    var modifiedQuery = injectProjectIdFilter(cypherQuery, projectId)
+
+                    // (usability test): limit at 150 nodes.
+                    modifiedQuery += "\nLIMIT 150";
+
                     println("Executing query: $modifiedQuery")
                     
-                    val result = tx.run(modifiedQuery, Values.parameters("projectId", projectId))
+                    val result = tx.run(
+                        modifiedQuery, Values.parameters("projectId", projectId))
                     
                     val nodes = mutableListOf<GraphNode>()
                     val edges = mutableListOf<GraphEdge>()

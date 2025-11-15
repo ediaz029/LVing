@@ -6,7 +6,7 @@ const edges = [
   { value: 'AST', label: '🌳 Abstract Syntax Tree (AST)' },
   { value: 'REFERS_TO', label: '🔗 References (REFERS_TO)' },
   { value: 'PDG', label: '📈 Program Dependence Graph (PDG)' },
-  { value: 'USAGE|SCOPE', label: '🎯 Usage & Scope Relations' },
+  { value: 'USAGE', label: '🎯 Reference Usage (USAGE)' },
 ];
 
 export type OptionGroup = { value: string, label: string, direction: "<" | ">" | "<>", allow: string };
@@ -15,13 +15,13 @@ export type Options = { label: string, options: OptionGroup[], allow: "single" |
 /*
 * Returns array of { value: str, label: str} indicative of applicable edge and general query types.
 */
-export function getCypherOptions(): Options {
+export function getCypherOptions(name: string): Options {
   var options : Options = [
     {label: "Suggested Queries (Select 1)", options: [], allow: "single"}, 
     {label: "Relationships (Select 1+)", options: [], allow: "multi"},
   ];
 
-  var suggestions = getQueryCandidates("test.rs");
+  var suggestions = getQueryCandidates(name);
   suggestions.forEach(e => {
     options[0].options.push({ value: e.cypher, label: e.label, direction: "<>", allow: "" })
   });
