@@ -108,6 +108,21 @@ class CpgService {
         val neo4jPassword = System.getenv("NEO4J_PASSWORD") ?: "password"
         val uri = "bolt://$neo4jHost:7687"
 
+        // usb test
+        val forbiddenPatterns = listOf(
+            "\\bcreate\\b",
+            "\\bmerge\\b",
+            "\\bdelete\\b",
+            "\\bset\\b",
+            "\\bdrop\\b",
+            "\\bremove\\b",
+            "\\bcall.*dbms\\b"
+        )
+
+        if (forbiddenPatterns.any { Regex(it).containsMatchIn(cypherQuery) }) {
+            throw Exception("access");
+        }
+
         GraphDatabase.driver(uri, AuthTokens.basic(neo4jUser, neo4jPassword)).use { driver ->
             driver.session().use { session ->
                 return session.readTransaction { tx ->
