@@ -117,14 +117,14 @@ export function ProjectListPage() {
                 Manage and analyze your Rust code projects
               </Text>
             </Box>
-            <Button
+            {/*<Button
               colorScheme="blue"
               size="lg"
               onClick={() => navigate("/new-project")}
               px={8}
             >
               + New Project
-            </Button>
+            </Button>*/}
           </Flex>
 
           {/* Search and Filter Bar */}

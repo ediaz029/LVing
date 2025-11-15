@@ -21,7 +21,6 @@ export function highlightCorrespondingCode(nodeId: string, code: string) {
     * or update each node's code property. Both of which would require
     * updating the CPG's language frontend for LLVM.
     */
-    console.debug(code);
     const getLineNumber = (i: number, s: string) => {
         return s.substring(0, i).split("\n").length;
     }
@@ -30,15 +29,18 @@ export function highlightCorrespondingCode(nodeId: string, code: string) {
     const rustView = getEditorView("RUST_EDITOR");
     if (!irView || !rustView) return;
 
+    // may have an attribute #<xxx> before the metadata
     // Not trusting !dbg's number at all for IR lookup.
-    const codeSplit = code.split("!dbg ")
-    const text = codeSplit[0]
-    console.debug(text);
+    const codeAttrSplit = code.split("#")
+    var text = "";
+    if (codeAttrSplit.length == 1) {
+        text = codeAttrSplit[0].split("!dbg")[0];
+    } else {
+        text = codeAttrSplit[0];
+    }
 
     var lineStart = CodeStrings.IR_CODE.indexOf(text);
     var lineEnd = lineStart + text.length - 1;
-    console.debug(lineStart, lineEnd, CodeStrings.IR_CODE.length);
-    console.debug(getLineNumber(lineStart, CodeStrings.IR_CODE), "->", getLineNumber(lineEnd, CodeStrings.IR_CODE));
 
     // IR Highlight:
     highlight(
@@ -54,15 +56,12 @@ export function highlightCorrespondingCode(nodeId: string, code: string) {
 
     // For the Rust highlight, we need to derive the real dbgId from the IR text, not the node's code.
     // Since it is confirmed by this point we have !dbg, we split by ! and grab the final entry.
-    
-    // unfortunately we can't trust code.length, but we are certain text.length + 5
-    // is the space right before the dbgid.
-    var end = lineStart + text.length + 5;
 
-    // so i just sort of walk this, but optimally this whole ordeal is fixed in the cpg itself
-    for (var i = 0; i < 6; i++) {
-        const c = CodeStrings.IR_CODE.charAt(end);
-        if (c == "\n") break;
+    // the end index of the line is uncertain given mismatch attribute and dbg IDs.
+    var end = lineStart + text.length;
+    var c = CodeStrings.IR_CODE.charAt(end);
+    while (c != "\n") {
+        c = CodeStrings.IR_CODE.charAt(end);
         end++;
     }
 
@@ -80,8 +79,6 @@ export function highlightCorrespondingCode(nodeId: string, code: string) {
     var info : RustLocInfo | null = null;
     var filename : string | null | undefined;
     var locationKey : string | null;
-
-    console.debug(metadata.identifier);
 
     // For DILocalVariable, the properties has file and line already.
     if (metadata.identifier === "DILocalVariable") {

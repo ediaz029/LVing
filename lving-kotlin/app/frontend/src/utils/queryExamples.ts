@@ -49,7 +49,7 @@ CALL apoc.algo.dijkstra(
   "DFG>|<AST|EOG>",
   "1"
 ) YIELD path
-RETURN a.name AS from, b.name AS to, path;`
+RETURN a.name AS from, b.name AS to, path`
     },
   ],
   "006_SharedBufferX.rs": [
@@ -88,7 +88,7 @@ CALL apoc.algo.dijkstra(
   "DFG>|<AST|EOG>",
   "1"
 ) YIELD path
-RETURN a.name AS from, b.name AS to, path;`
+RETURN a.name AS from, b.name AS to, path`
     },
   ],
   "010_HeapThreadX.rs": [
@@ -101,11 +101,15 @@ RETURN a.name AS from, b.name AS to, path;`
     {
       label: "default",
       cypher: `MATCH (n: TrackedVariable)
-WHERE n.name IN ["s2", "s1"]
+WHERE n.name IN ["s1"]
+MATCH (e: CallExpression)
+WHERE e.fullName CONTAINS "core::ptr::drop_in_place"
+WITH n, COLLECT(e) AS es
 CALL apoc.path.expandConfig(n, {
   relationshipFilter: "<REFERS_TO|EOG>",
   minLevel: 1,
-  maxLevel: 2
+  maxLevel: 5,
+  terminatorNodes: es
 })
 YIELD path
 RETURN path`
@@ -129,11 +133,11 @@ RETURN path`
     {
       label: "default",
       cypher: `MATCH (n: TrackedVariable)
-WHERE n.name IN ["vec_main"]
+WHERE n.name IN ["vec_main", "vec_thread"]
 CALL apoc.path.expandConfig(n, {
   relationshipFilter: "EOG>|REFERS_TO",
   minLevel: 1,
-  maxLevel: 5
+  maxLevel: 4
 })
 YIELD path
 RETURN path`
@@ -143,13 +147,18 @@ RETURN path`
     {
       label: "default",
       cypher: `MATCH (n: TrackedVariable)
-WHERE n.name IN ["_3", "resource"]
+WHERE n.name IN ["resource"]
+MATCH (e: CallExpression)
+WHERE e.fullName STARTS WITH "core::ptr::drop_in_place"
 CALL apoc.path.expandConfig(n, {
-  relationshipFilter: "DFG>|EOG>",
-  minLevel: 1,
-  maxLevel: 7
-})
-YIELD path
+    relationshipFilter: "EOG>|DFG|REFERS_TO<",
+    endNodes: [e],
+    minLevel: 1,
+    maxLevel: 8,
+    bfs: true,
+    uniqueness: "NODE_GLOBAL",
+    limit: 1
+}) YIELD path
 RETURN path`
     },
   ],
@@ -198,12 +207,16 @@ RETURN path`
   "007_StringAllocation.rs": [
     {
       label: "default",
-      cypher: `MATCH (n: TrackedVariable)
-WHERE n.name IN ["s"]
+      cypher: `MATCH (e)
+WHERE e.fullName CONTAINS "core::ptr::drop_in_place" OR e.fullName CONTAINS "llvm.dbg.declare"
+WITH COLLECT(e) AS blacklist
+MATCH (n: TrackedVariable)
+WHERE n.name IN ["v"]
 CALL apoc.path.expandConfig(n, {
-  relationshipFilter: "DFG>|EOG>",
+  relationshipFilter: "EOG>|REFERS_TO<",
   minLevel: 1,
-  maxLevel: 2
+  maxLevel: 7,
+  blacklistNodes: blacklist
 })
 YIELD path
 RETURN path`
@@ -217,7 +230,7 @@ WHERE n.name IN ["wrapper"]
 CALL apoc.path.expandConfig(n, {
   relationshipFilter: "EOG>|REFERS_TO<",
   minLevel: 1,
-  maxLevel: 3
+  maxLevel: 2
 })
 YIELD path
 RETURN path`

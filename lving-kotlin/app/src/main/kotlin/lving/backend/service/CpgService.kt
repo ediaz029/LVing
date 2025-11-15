@@ -169,30 +169,34 @@ class CpgService {
         // This is a basic implementation - for production, use a proper Cypher parser
         val lines = cypherQuery.split("\n")
         val modifiedLines = mutableListOf<String>()
+        val matchRgx = """MATCH \((\w+):""".toRegex()
+        val whereRgx = """WHERE (?:\w+\()?(\w+)""".toRegex()
         var injected = false
 
         for (line in lines) {
             modifiedLines.add(line)
+            val nodeName = matchRgx.find(line)?.destructured?.component1()
             if (!injected && line.trim().uppercase().startsWith("MATCH")) {
                 // Check if next line is WHERE, if not, inject
                 val nextLineIndex = lines.indexOf(line) + 1
                 if (nextLineIndex < lines.size) {
                     val nextLine = lines[nextLineIndex].trim().uppercase()
                     if (!nextLine.startsWith("WHERE")) {
-                        modifiedLines.add("WHERE n.projectId IS NOT NULL AND n.projectId = \$projectId")
-                        injected = true
+                        modifiedLines.add("WHERE ${nodeName}.projectId IS NOT NULL AND ${nodeName}.projectId = \$projectId")
+//                        injected = true
                     }
                 } else {
-                    modifiedLines.add("WHERE n.projectId IS NOT NULL AND n.projectId = \$projectId")
-                    injected = true
+                    modifiedLines.add("WHERE ${nodeName}.projectId IS NOT NULL AND ${nodeName}.projectId = \$projectId")
+//                    injected = true
                 }
             }
 
             // If the user supplies their own predicate, we'll assume its just one line
             // and attach on via AND.
             if (!injected && line.trim().uppercase().startsWith("WHERE")) {
-                modifiedLines.add("AND n.projectId IS NOT NULL AND n.projectId = \$projectId")
-                injected = true
+                val nodeName = whereRgx.find(line.trim())?.destructured?.component1()
+                modifiedLines.add("AND ${nodeName}.projectId IS NOT NULL AND ${nodeName}.projectId = \$projectId")
+//                injected = true
             }
         }
 

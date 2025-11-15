@@ -58,7 +58,7 @@ export function Layout() {
                 <Text>Projects</Text>
               </HStack>
             </ChakraLink>
-            <ChakraLink
+            {/*<ChakraLink
               as={ReactRouterLink}
               to="/new-project"
               px={4}
@@ -72,6 +72,7 @@ export function Layout() {
             >
               + New Project
             </ChakraLink>
+            */}
           </HStack>
         </Flex>
       </Box>
