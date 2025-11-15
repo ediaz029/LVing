@@ -78,7 +78,7 @@ export function highlightCorrespondingCode(nodeId: string, code: string) {
     if (!["DILocation", "DILocalVariable"].includes(metadata.identifier)) return;
 
     var info : RustLocInfo | null = null;
-    var filename : string | null;
+    var filename : string | null | undefined;
     var locationKey : string | null;
 
     console.debug(metadata.identifier);

@@ -42,7 +42,7 @@ interface GraphVisualizationProps {
   height?: string;
 }
 
-export function GraphVisualization({ data, project, tracked, height = '100%' }: GraphVisualizationProps) {
+export function GraphVisualization({ data, project, height = '100%' }: GraphVisualizationProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const networkRef = useRef<Network | null>(null);
   const nodeRef = useRef<DataSet<any>>(new DataSet([]));
