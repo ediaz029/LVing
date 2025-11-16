@@ -36,26 +36,30 @@ RETURN path`
   "018_ThreadSwap.rs": [
     {
       label: "default",
-      cypher: `MATCH (n:TrackedVariable)
-WHERE n.name IN ["ptr", "vec2", "x.dbg.spill"]
-WITH collect(n) AS nodes
-
-UNWIND range(0, size(nodes)-1) AS i
-UNWIND range(i+1, size(nodes)-1) AS j
-
-WITH nodes[i] AS a, nodes[j] AS b
-CALL apoc.algo.dijkstra(
-  a, b,
-  "DFG>|<AST|EOG>",
-  "1"
-) YIELD path
-RETURN a.name AS from, b.name AS to, path`
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["vec2", "vec1"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "EOG>|DFG>",
+  minLevel: 1,
+  maxLevel: 2,
+  labelFilter: "-Literal"
+})
+YIELD path
+RETURN path`
     },
   ],
   "006_SharedBufferX.rs": [
     {
       label: "default",
-      cypher: ``
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["buffer", "buf.dbg.spill"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "DFG|REFERS_TO>",
+  minLevel: 1,
+  maxLevel: 3
+})
+YIELD path
+RETURN path`
     },
   ],
   "001_PointerThread.rs": [
@@ -75,26 +79,43 @@ RETURN path`
   "009_HeapThreadA.rs": [
     {
       label: "default",
-      cypher: `MATCH (n:TrackedVariable)
-WHERE n.name IN ["sendable_ptr", "boxed", "value.dbg.spill"]
-WITH collect(n) AS nodes
-
-UNWIND range(0, size(nodes)-1) AS i
-UNWIND range(i+1, size(nodes)-1) AS j
-
-WITH nodes[i] AS a, nodes[j] AS b
-CALL apoc.algo.dijkstra(
-  a, b,
-  "DFG>|<AST|EOG>",
-  "1"
-) YIELD path
-RETURN a.name AS from, b.name AS to, path`
+      cypher: `MMATCH (n: TrackedVariable)
+WHERE n.name IN ["boxed"]
+MATCH (e: CallExpression)
+WHERE e.fullName STARTS WITH "core::mem::"
+CALL apoc.path.expandConfig(n, {
+    relationshipFilter: "EOG>|DFG>|REFERS_TO<",
+    endNodes: [e],
+    minLevel: 1,
+    maxLevel: 8,
+    bfs: true,
+    uniqueness: "NODE_GLOBAL",
+    limit: 1
+})
+YIELD path AS p1
+WITH e, p1
+CALL apoc.path.expandConfig(e, {
+    relationshipFilter: "EOG>|AST>|INVOKES|TARGET_LABEL",
+    minLevel: 1,
+    maxLevel: 3,
+    labelFilter: "-Type|-Scope|-TranslationUnitDeclaration"
+})
+YIELD path
+RETURN path, p1`
     },
   ],
   "010_HeapThreadX.rs": [
     {
       label: "default",
-      cypher: ``
+      cypher: `MATCH (n: TrackedVariable)
+WHERE n.name IN ["boxed", "ptr"]
+CALL apoc.path.expandConfig(n, {
+  relationshipFilter: "DFG>|EOG<",
+  minLevel: 1,
+  maxLevel: 3
+})
+YIELD path
+RETURN path`
     },
   ],
   "014_Swap.rs": [
@@ -115,15 +136,16 @@ YIELD path
 RETURN path`
     },
   ],
-  "017_VecExtend.rs": [
+  "017_StringBox.rs": [
     {
       label: "default",
       cypher: `MATCH (n: TrackedVariable)
-WHERE n.name IN ["vec"]
+WHERE n.name IN ["h", "r"]
 CALL apoc.path.expandConfig(n, {
-  relationshipFilter: "DFG>|EOG>",
+  relationshipFilter: "EOG>|REFERS_TO<",
   minLevel: 1,
-  maxLevel: 2
+  maxLevel: 2,
+  labelFilter: "-Literal"
 })
 YIELD path
 RETURN path`
@@ -137,7 +159,7 @@ WHERE n.name IN ["vec_main", "vec_thread"]
 CALL apoc.path.expandConfig(n, {
   relationshipFilter: "EOG>|REFERS_TO",
   minLevel: 1,
-  maxLevel: 4
+  maxLevel: 2
 })
 YIELD path
 RETURN path`
@@ -190,21 +212,25 @@ YIELD path
 RETURN path`
     },
   ],
-  "013_WeakArc.rs": [
+  "013_TraitHeldLT.rs": [
     {
       label: "default",
-      cypher: `MATCH (n: TrackedVariable)
-WHERE n.name IN ["arc", "weak"]
+      cypher: `MATCH (x: Reference {fullName: "cleanuppad"})
+WITH COLLECT(x) AS bl
+MATCH (n: TrackedVariable)
+WHERE n.name IN ["holder", "r"]
 CALL apoc.path.expandConfig(n, {
   relationshipFilter: "EOG>|REFERS_TO<|DFG>",
   minLevel: 1,
-  maxLevel: 3
+  maxLevel: 3,
+  labelFilter: "-Literal|-DeclarationStatement|-ParameterDeclaration",
+  blacklistNodes: bl
 })
 YIELD path
 RETURN path`
     },
   ],
-  "007_StringAllocation.rs": [
+  "007_DAReservation.rs": [
     {
       label: "default",
       cypher: `MATCH (e)
@@ -254,11 +280,13 @@ RETURN path`
     {
       label: "default",
       cypher: `MATCH (n: TrackedVariable)
-WHERE n.name IN ["x"]
+WHERE n.name IN ["x", "ptr.dbg.spill"]
 CALL apoc.path.expandConfig(n, {
-  relationshipFilter: "DFG|EOG>",
+  relationshipFilter: "EOG>|REFERS_TO<|DFG",
   minLevel: 1,
-  maxLevel: 3
+  maxLevel: 2,
+  labelFilter: "-Literal|-ParameterDeclaration|-NewArrayExpression",
+  bfs: true
 })
 YIELD path
 RETURN path`
@@ -282,11 +310,12 @@ RETURN path`
     {
       label: "default",
       cypher: `MATCH (n: TrackedVariable)
-WHERE n.name IN ["x.dbg.spill", "animal", "dog"]
+WHERE n.name IN ["x.dbg.spill", "dog", "animal"]
 CALL apoc.path.expandConfig(n, {
-  relationshipFilter: "EOG>|REFERS_TO<|AST<",
+  relationshipFilter: "REFERS_TO<|EOG",
   minLevel: 1,
-  maxLevel: 3
+  maxLevel: 2,
+  labelFilter: "-DeclarationStatement|-Literal"
 })
 YIELD path
 RETURN path`
