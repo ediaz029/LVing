@@ -211,9 +211,103 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
       });
     }
 
+    // visjs hates disconnected graphs
+    const separateComponents = (nodes: any[], edges: any[]) => {
+      const adjacency = new Map<string, Set<string>>();
+      nodes.forEach(node => adjacency.set(node.id, new Set()));
+      edges.forEach(edge => {
+        adjacency.get(edge.from)?.add(edge.to);
+        adjacency.get(edge.to)?.add(edge.from);
+      });
+      const visited = new Set<string>();
+      const components: string[][] = [];
+      
+      nodes.forEach(node => {
+        if (visited.has(node.id)) return;
+        const component: string[] = [];
+        const queue = [node.id];
+        while (queue.length > 0) {
+          const current = queue.shift()!;
+          if (visited.has(current)) continue;
+          visited.add(current);
+          component.push(current);
+          adjacency.get(current)?.forEach(neighbor => {
+            if (!visited.has(neighbor)) {
+              queue.push(neighbor);
+            }
+          });
+        }
+        components.push(component);
+      });
+      // console.log(nodes);
+      
+      const s = 200;
+      const cols = Math.ceil(Math.sqrt(components.length));
+      const positionedNodes = nodes.map(node => ({ ...node }));
+      components.forEach((component, index) => {
+        const componentSize = component.length;
+        const radius = Math.max(150, componentSize * 30);
+
+        // console.log(radius);
+        component.forEach((nodeId, nodeIndex) => {
+          const node = positionedNodes.find(n => n.id === nodeId);
+          // console.log(node);
+          if (node) {
+            const angle = (nodeIndex / componentSize) * 2 * Math.PI;
+            // console.log(angle);
+            node.x = (index % cols) * s + radius * Math.cos(angle);
+            node.y = (Math.floor(index / cols)) * s + radius * Math.sin(angle);
+            // console.log(node.x, node.y);
+          }
+        });
+      });
+      return positionedNodes;
+    };
+
+    const processParallelEdges = (edges: any[]) => {
+      const edgeGroups = new Map<string, any[]>();
+      edges.forEach(edge => {
+        const key = `${edge.from}-${edge.to}`;
+        if (!edgeGroups.has(key)) {
+          edgeGroups.set(key, []);
+        }
+        edgeGroups.get(key)!.push(edge);
+      });
+        
+      // console.log(edgeGroups);
+      
+      // parallel edges overlap almost 100% of the time.
+      // the only workaround i can think to do for that is to modify the curve weight.
+      const processedEdges: any[] = [];
+        edgeGroups.forEach((group, _) => {
+          if (group.length === 1) {
+            processedEdges.push({...group[0], smooth: {enabled: false}});
+          } else {
+            group.forEach((edge, index) => {
+              const totalEdges = group.length;
+              const offset = index - (totalEdges - 1) / 2;
+              const roundness = 0.2 + (Math.abs(offset) * 0.2);
+              // console.log(roundness);
+              // console.log(offset);
+              processedEdges.push({
+                ...edge,
+                smooth: {
+                  enabled: true,
+                  type: offset >= 0 ? 'curvedCW' : 'curvedCCW',
+                  roundness: roundness,
+                }
+              });
+            });
+          }
+        });
+        return processedEdges;
+    };
+    const processedEdges = processParallelEdges(enhancedEdges);
+    const separatedNodes = separateComponents(enhancedNodes, processedEdges);
+
     // Kill duplicates:
-    edgeRef.current = new DataSet(removeDuplicateByID(enhancedEdges));
-    nodeRef.current = new DataSet(removeDuplicateByID(enhancedNodes));
+    edgeRef.current = new DataSet(removeDuplicateByID(processedEdges));
+    nodeRef.current = new DataSet(removeDuplicateByID(separatedNodes));
 
     const network = new Network(
       containerRef.current,
@@ -244,16 +338,16 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
           enabled: true,
           stabilization: {
             enabled: true,
-            iterations: 300,
+            iterations: 800,
             fit: true,
           },
           barnesHut: {
-            gravitationalConstant: -2000,
-            centralGravity: 0.05,
-            springConstant: 0.01,
-            springLength: 120,
-            damping: 0.15,
-            avoidOverlap: 1,
+            gravitationalConstant: -5000,
+            centralGravity: 0.005,
+            springConstant: 0.04,
+            springLength: 100,
+            damping: 0.35,
+            avoidOverlap: 0.8,
           },
         },
         interaction: {
@@ -267,6 +361,11 @@ export function GraphVisualization({ data, project, height = '100%' }: GraphVisu
         },
       }
     );
+
+    network.once('stabilizationIterationsDone', () => {
+      network.stopSimulation();
+      network.fit({});
+    });
 
     networkRef.current = network;
 

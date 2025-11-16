@@ -79,7 +79,7 @@ RETURN path`
   "009_HeapThreadA.rs": [
     {
       label: "default",
-      cypher: `MMATCH (n: TrackedVariable)
+      cypher: `MATCH (n: TrackedVariable)
 WHERE n.name IN ["boxed"]
 MATCH (e: CallExpression)
 WHERE e.fullName STARTS WITH "core::mem::"
